@@ -198,10 +198,17 @@ export function createPlexClient(config: PlexClientConfig): PlexClient {
       // paging until it sees an empty page or hits MAX_TOTAL_TRACKS.
       const totalSize = mc.totalSize ?? undefined;
 
-      if (pageSize > 0 && metadata.length === 0) {
+      // Pagination advances `fetched` by `pageSize`. Any mismatch between
+      // `pageSize` and the actual metadata array length would cause us to
+      // silently skip or re-read items, or loop forever on a zero-size
+      // non-empty page. Reject the whole response rather than paper over it.
+      if (pageSize !== metadata.length) {
         throw new PlexApiError(
-          { kind: "invalid_response", issues: [`MediaContainer.size=${pageSize} but Metadata is empty`] },
-          `plex response inconsistent: size=${pageSize} Metadata.length=0`,
+          {
+            kind: "invalid_response",
+            issues: [`MediaContainer.size=${pageSize} but Metadata.length=${metadata.length}`],
+          },
+          `plex response inconsistent: size=${pageSize} Metadata.length=${metadata.length}`,
         );
       }
 

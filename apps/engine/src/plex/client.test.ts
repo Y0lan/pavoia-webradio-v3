@@ -322,6 +322,35 @@ describe("PlexClient.fetchPlaylist", () => {
     );
   });
 
+  it("inconsistent container: size !== Metadata.length (any mismatch) → invalid_response", async () => {
+    // Covers the subtle case where Plex returns some items but reports a
+    // different size — advancing pagination by `size` would skip or
+    // re-read items. Must reject, not paper over.
+    stub.setHandler((_req, res) => {
+      res.end(
+        JSON.stringify({
+          MediaContainer: {
+            size: 5,
+            totalSize: 5,
+            Metadata: [
+              entry({ ratingKey: "1" }),
+              entry({ ratingKey: "2" }),
+              entry({ ratingKey: "3" }),
+            ],
+          },
+        }),
+      );
+    });
+    const client = createPlexClient({ baseUrl: stub.url, token: "t", libraryRoot: LIB_ROOT });
+    await assert.rejects(
+      () => client.fetchPlaylist(1),
+      (err: unknown) =>
+        err instanceof PlexApiError &&
+        err.detail.kind === "invalid_response" &&
+        err.detail.issues.some((i) => i.includes("Metadata.length=3")),
+    );
+  });
+
   it("tolerates nullable Plex fields (grandparentTitle/parentTitle/parentYear/duration/thumb = null)", async () => {
     stub.setHandler((_req, res) => {
       res.end(

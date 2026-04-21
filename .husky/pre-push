@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+remote="$1"
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      echo "✗ Direct push to $remote_ref blocked. Open a PR instead."
+      exit 1
+      ;;
+  esac
+done
+echo "→ Running CodeRabbit review before push..."
+coderabbit review --prompt-only --type committed --base origin/main || {
+  echo "✗ CodeRabbit flagged issues. Fix them, or use --no-verify if intentional."
+  exit 1
+}

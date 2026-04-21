@@ -150,3 +150,62 @@ From the Codex challenge + user decisions (2026-04-21):
 2. Read `docs/SLIM_V3.md` and `docs/WEEK0_LOG.md` in full (~15 min).
 3. Propose the first implementation task in natural language — don't code yet.
 4. Wait for user approval. Then implement exactly that one task.
+
+---
+
+## Review & Git workflow (non-negotiable)
+
+### Branch discipline
+- Never commit or push directly to `main` (or `master`). Ever.
+- For any change: branch first. Naming: `feat/<slug>`, `fix/<slug>`,
+  `chore/<slug>`, `refactor/<slug>`, `docs/<slug>`.
+- If asked to make changes while on `main`, branch first, then work.
+
+### Inner loop — between increments (fast, local)
+After each logical increment (feature slice, bugfix, refactor):
+1. `git add -A`
+2. Run `/coderabbit:review uncommitted`
+3. Address every Critical finding. Evaluate Suggestions on merit and apply
+   the ones that improve the code.
+4. Re-run `/coderabbit:review uncommitted` until no Critical remains.
+5. Commit with a Conventional Commit message (`type(scope): subject`).
+6. Move to the next increment.
+
+Increment sizing: target under 300 LOC of diff per review cycle. If larger,
+split it — do not try to review a 1000-line diff.
+
+### Outer loop — PR & merge (formal gate)
+When the full feature slice is done and all increments are committed:
+1. `git push -u origin <branch>` (the pre-push hook will run CodeRabbit
+   against `origin/main` first — if it fails, fix before retrying).
+2. `gh pr create --draft --fill` — always draft, never ready-for-review
+   on creation. Edit the body to explain the *why*, not just the *what*.
+3. Wait for the CodeRabbit GitHub App review to post as PR comments. Poll
+   with `gh pr view --comments` every 2–3 minutes. Do not spam.
+4. Read ALL findings. Address Critical + relevant Suggestions. Push fixes
+   as additional commits (never force-push during an active review —
+   CodeRabbit does incremental reviews per push).
+5. Repeat 3–4 until the PR review is clean.
+6. `gh pr ready` to mark ready for human review.
+7. STOP. Do not merge. The human reviewer merges.
+
+### Hard prohibitions
+I will never:
+- Push to `main` / `master` directly.
+- Run `gh pr merge` in any form (including `--auto`).
+- Force-push to a branch with an open PR under active CodeRabbit review.
+- Use `--no-verify` to bypass the pre-push hook unless Yolan explicitly
+  tells me to in this conversation.
+- Skip `/coderabbit:review uncommitted` between increments to "save time".
+- Open a non-draft PR. Always draft first, `gh pr ready` after clean.
+
+### Fetching review feedback
+- Local uncommitted: `/coderabbit:review uncommitted`
+- Local committed (pre-push check): `coderabbit review --prompt-only --type committed --base origin/main`
+- Open PR comments: `gh pr view [<number>] --comments`
+- Full PR diff + review: `gh pr view <number> --json reviews,comments`
+
+### Commit convention
+Conventional Commits. Types: feat, fix, chore, refactor, docs, test, perf, ci.
+Subject ≤ 72 chars. Body explains *why* when non-obvious. One logical change
+per commit.

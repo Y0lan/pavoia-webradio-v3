@@ -63,7 +63,12 @@ export type Track = {
  */
 export type PublicTrack = Omit<Track, "filePath">;
 
-/** Project an engine-internal Track into a client-safe PublicTrack. */
+/**
+ * Project an engine-internal Track into a client-safe PublicTrack.
+ *
+ * @param t - The engine-only track object (contains internal fields such as `filePath`)
+ * @returns A `PublicTrack` containing the same fields as `t` except `filePath` has been removed
+ */
 export function toPublicTrack(t: Track): PublicTrack {
   const { filePath: _filePath, ...publicFields } = t;
   return publicFields;

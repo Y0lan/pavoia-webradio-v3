@@ -1,22 +1,12 @@
 import { createHash } from "node:crypto";
 
 /**
- * Stable identity hash for a track independent of Plex's `ratingKey`.
+ * Generate a stable 16-character hex identity token for a track from artist, title, and album.
  *
- * Plex re-indexes (library scans, metadata updates) can rotate `ratingKey`
- * for the same underlying file. We need a second identity token so play
- * history and discovery feeds survive re-indexes. This composes the three
- * human-facing strings that together identify a track in practice.
+ * Inputs are normalized to Unicode NFC and trimmed before canonicalization; the resulting canonical
+ * string is hashed with SHA-256 and the first 16 hex characters of the digest are returned.
  *
- * Per WEEK0_LOG.md / SLIM_V3 Codex finding #21:
- *   Track identity = (plex_rating_key, fallback_hash(artist, title, album))
- *
- * Output: 16 hex chars of a SHA-256 (64 bits of entropy — enough to make
- * accidental collisions on a library of ~20k tracks vanishingly unlikely,
- * short enough to fit in log lines).
- *
- * Inputs are NFC-normalised before hashing so `é` (U+00E9) and `é`
- * (U+0065 + U+0301) hash identically.
+ * @returns A 16-character lowercase hex string derived from the SHA-256 digest of the normalized inputs
  */
 export function fallbackHash(
   artist: string,

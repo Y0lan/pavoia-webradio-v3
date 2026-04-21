@@ -110,6 +110,15 @@ export type PlexClient = {
   fetchPlaylist(ratingKey: number): Promise<FetchPlaylistResult>;
 };
 
+/**
+ * Create a Plex client configured to fetch and map playlist items from a Plex server.
+ *
+ * The returned client exposes `fetchPlaylist(ratingKey)` which pages the Plex playlist,
+ * converts entries into playable `Track` objects, and counts entries that are skipped
+ * due to validation or path/security rules.
+ *
+ * @returns A `PlexClient` providing `fetchPlaylist(ratingKey)` that returns `{ ratingKey, tracks, skipped }`.
+ */
 export function createPlexClient(config: PlexClientConfig): PlexClient {
   const {
     baseUrl,
@@ -255,6 +264,14 @@ export function createPlexClient(config: PlexClientConfig): PlexClient {
   return { fetchPlaylist };
 }
 
+/**
+ * Convert a Plex playlist metadata entry into a playable Track or record why it was skipped.
+ *
+ * @param entry - Plex track metadata object to map
+ * @param libRootAbsolute - Absolute library root path used to validate that the track file lives inside the library
+ * @param onSkip - Callback invoked once for each rejected entry with a `PlexSkipReason`
+ * @returns `Track` when the entry is valid and accepted; `null` when the entry is rejected and reported via `onSkip`
+ */
 function mapEntryToTrack(
   entry: PlexTrackMetadataT,
   libRootAbsolute: string,

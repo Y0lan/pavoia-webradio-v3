@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
+
+# Block direct pushes to protected branches.
 remote="$1"
-while read local_ref local_sha remote_ref remote_sha; do
+while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main|refs/heads/master)
       echo "✗ Direct push to $remote_ref blocked. Open a PR instead."
@@ -8,6 +10,28 @@ while read local_ref local_sha remote_ref remote_sha; do
       ;;
   esac
 done
+
+# Verify the CodeRabbit CLI is installed before trying to run it.
+# The CLI is NOT an npm package — it ships via a shell installer
+# (https://cli.coderabbit.ai/install.sh) or `brew install coderabbit`.
+if ! command -v coderabbit >/dev/null 2>&1; then
+  cat <<MSG >&2
+✗ 'coderabbit' CLI not found on PATH.
+
+Install it (one-time, per developer):
+  curl -fsSL https://cli.coderabbit.ai/install.sh | sh
+    or
+  brew install coderabbit
+
+Then authenticate:
+  coderabbit auth login
+
+If you know what you're doing and want to skip this hook for a single push:
+  git push --no-verify
+MSG
+  exit 1
+fi
+
 echo "→ Running CodeRabbit review before push..."
 coderabbit review --prompt-only --type committed --base origin/main || {
   echo "✗ CodeRabbit flagged issues. Fix them, or use --no-verify if intentional."

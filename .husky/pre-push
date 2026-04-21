@@ -32,8 +32,22 @@ MSG
   exit 1
 fi
 
-echo "→ Running CodeRabbit review before push..."
-coderabbit review --prompt-only --type committed --base origin/main || {
+# Resolve the review base so stacked PRs don't surface findings from
+# commits that belong to a parent branch. Priority:
+#   1. $CODERABBIT_BASE env var (escape hatch / CI override)
+#   2. The open PR's baseRefName via `gh` (if gh CLI is installed + authed)
+#   3. Fallback to origin/main
+BASE="${CODERABBIT_BASE:-}"
+if [ -z "$BASE" ] && command -v gh >/dev/null 2>&1; then
+  pr_base=$(gh pr view --json baseRefName --jq '.baseRefName' 2>/dev/null)
+  if [ -n "$pr_base" ]; then
+    BASE="origin/$pr_base"
+  fi
+fi
+BASE="${BASE:-origin/main}"
+
+echo "→ Running CodeRabbit review against ${BASE}..."
+coderabbit review --prompt-only --type committed --base "$BASE" || {
   echo "✗ CodeRabbit flagged issues. Fix them, or use --no-verify if intentional."
   exit 1
 }

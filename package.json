@@ -8,10 +8,11 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --build",
+    "typecheck": "tsc --build && tsc --noEmit -p apps/engine/tsconfig.test.json",
     "typecheck:clean": "tsc --build --clean",
     "engine:dev": "npm run dev --workspace=apps/engine",
     "web:dev": "npm run dev --workspace=apps/web",
+    "test": "npm run test --workspaces --if-present",
     "clean": "npm run typecheck:clean && rm -rf apps/*/dist packages/*/dist"
   },
   "engines": {

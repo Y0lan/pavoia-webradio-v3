@@ -1,6 +1,6 @@
 # @pavoia/engine
 
-The audio engine for Pavoia Webradio v3. Polls Plex playlists, spawns one ffmpeg process per track, emits a continuous HLS stream per stage to `/dev/shm/1008/radio-hls/<stage>/`, and exposes now-playing state over HTTP.
+The audio engine for Pavoia Webradio v3. In Week 1 Task 1 (this PR), it boots a Hono HTTP server, exposes `/api/health` for the cron watchdog, and implements graceful SIGTERM / SIGINT / SIGHUP shutdown. Plex polling, per-track ffmpeg orchestration, HLS emission to `/dev/shm/1008/radio-hls/<stage>/`, and now-playing endpoints are added in later Week 1 tasks.
 
 See `../../docs/SLIM_V3.md` for the full feature scope, `../../docs/WEEK0_LOG.md` for the 16 locked requirements (A–P) that constrain the implementation, and `../../CLAUDE.md` at the repo root for onboarding.
 

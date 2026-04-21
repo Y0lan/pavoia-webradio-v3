@@ -187,12 +187,43 @@ When the full feature slice is done and all increments are committed:
    CodeRabbit does incremental reviews per push).
 5. Repeat 3–4 until the PR review is clean.
 6. `gh pr ready` to mark ready for human review.
-7. STOP. Do not merge. The human reviewer merges.
+7. Proceed to the **triple-signoff merge gate** below. Without that gate
+   explicitly clean, I do not merge.
+
+### Triple-signoff merge gate (when I may `gh pr merge`)
+`gh pr merge` is **only** allowed when every single one of these is true:
+
+1. **Claude** (me): I have re-read the full PR diff end-to-end and found
+   no Critical / P1 / correctness / security issues. If I'm unsure,
+   I'm not cleared — I stop and flag.
+2. **Codex**: `/codex review` (the `/codex` gstack skill, Review mode,
+   base = PR base branch) has been run and returns **GATE: PASS** with
+   zero `[P1]` findings. A stale Codex run from an earlier commit does
+   not count — the Codex review must cover the PR's current HEAD.
+3. **CodeRabbit**: the CodeRabbit GitHub App review is in a clean state
+   on the PR's current HEAD — no unresolved Critical / Potential-issue
+   / Major findings. CodeRabbit's status check must be `SUCCESS`, and
+   if a new commit has landed since the last CodeRabbit review, I
+   trigger `@coderabbitai review` and wait for the incremental reply
+   before claiming this bullet.
+4. **Mechanics**: CI is green, the PR is out of draft (`gh pr ready`
+   already run), and the PR base branch is up to date with `main`
+   (rebase / retarget if stacked PRs have merged in the meantime).
+
+When all four are true, merge with `gh pr merge <number> --squash` by
+default (unless the PR explicitly calls for merge-commit or
+rebase-merge in its description). Delete the branch on merge with
+`--delete-branch` once it is no longer needed by a stacked dependent.
+
+When **any** of the four is not true, the hard prohibition below
+applies.
 
 ### Hard prohibitions
 I will never:
 - Push to `main` / `master` directly.
-- Run `gh pr merge` in any form (including `--auto`).
+- `gh pr merge` unless the **Triple-signoff merge gate** above is
+  entirely clean. Specifically: never `--auto`, never on a draft PR,
+  never on an unreviewed commit, never on a stale Codex review.
 - Force-push to a branch with an open PR under active CodeRabbit review.
 - Use `--no-verify` to bypass the pre-push hook unless Yolan explicitly
   tells me to in this conversation.

@@ -169,12 +169,23 @@ export function createPlexClient(config: PlexClientConfig): PlexClient {
         // the AbortController will cancel the stream.
         payload = await res.json();
       } catch (err) {
-        if ((err as { name?: string })?.name === "AbortError") {
+        const errName = (err as { name?: string })?.name;
+        if (errName === "AbortError") {
           throw new PlexApiError({ kind: "timeout", timeoutMs }, `plex body read timed out after ${timeoutMs}ms`);
         }
+        // SyntaxError = JSON parse failure = genuinely malformed response.
+        // Anything else (TypeError "terminated", socket errors, etc.) is
+        // a transport failure after the headers arrived — classify as
+        // network so the supervisor knows it's retryable, not broken.
+        if (errName === "SyntaxError") {
+          throw new PlexApiError(
+            { kind: "invalid_response", issues: ["response body is not valid JSON"] },
+            `plex returned non-JSON response: ${(err as Error).message}`,
+          );
+        }
         throw new PlexApiError(
-          { kind: "invalid_response", issues: ["response body is not valid JSON"] },
-          `plex returned non-JSON response: ${(err as Error).message}`,
+          { kind: "network", cause: err },
+          `plex body read failed: ${(err as Error).message}`,
         );
       }
 
@@ -340,7 +351,12 @@ function mapEntryToTrack(
     return null;
   }
 
-  const artist = entry.grandparentTitle ?? "Unknown artist";
+  // Treat blank/whitespace-only `grandparentTitle` the same as null/undefined
+  // so a single "missing artist" case produces one stable fallbackHash
+  // (same identity) and the UI shows a consistent "Unknown artist" label.
+  const artist = entry.grandparentTitle?.trim()
+    ? entry.grandparentTitle
+    : "Unknown artist";
   const album = entry.parentTitle ?? "";
 
   return {

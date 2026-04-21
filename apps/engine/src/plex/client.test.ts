@@ -524,6 +524,69 @@ describe("PlexClient.fetchPlaylist", () => {
     assert.equal(skips.filter((s) => s.reason === "invalid_rating_key").length, 4);
   });
 
+  it("body stream termination (not a JSON parse error) is classified as network, not invalid_response", async () => {
+    // Simulates Plex dropping the connection after headers are sent but
+    // before the body is fully written. fetch() will reject res.json()
+    // with a TypeError ("terminated"), not a SyntaxError. Supervisors
+    // must treat this as retryable network failure, not malformed data.
+    stub.setHandler(async (_req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.flushHeaders();
+      res.write("{\"MediaContainer\":{\"size\":5");
+      res.destroy();
+    });
+    const client = createPlexClient({
+      baseUrl: stub.url,
+      token: "t",
+      libraryRoot: LIB_ROOT,
+      timeoutMs: 3000,
+    });
+    await assert.rejects(
+      () => client.fetchPlaylist(1),
+      (err: unknown) => err instanceof PlexApiError && err.detail.kind === "network",
+    );
+  });
+
+  it("body that parses but isn't JSON (HTML page) is classified as invalid_response, not network", async () => {
+    stub.setHandler((_req, res) => {
+      res.setHeader("content-type", "text/plain");
+      res.end("<html>Plex UI</html>");
+    });
+    const client = createPlexClient({ baseUrl: stub.url, token: "t", libraryRoot: LIB_ROOT });
+    await assert.rejects(
+      () => client.fetchPlaylist(1),
+      (err: unknown) => err instanceof PlexApiError && err.detail.kind === "invalid_response",
+    );
+  });
+
+  it("blank/whitespace-only grandparentTitle falls back to 'Unknown artist' with stable hash", async () => {
+    // Same identity whether Plex sends null, omits the field, or sends "".
+    stub.setHandler((_req, res) => {
+      res.end(
+        JSON.stringify({
+          MediaContainer: {
+            size: 3,
+            totalSize: 3,
+            Metadata: [
+              { ratingKey: "1", type: "track", title: "T", grandparentTitle: null, parentTitle: "A", parentYear: 2020, duration: 100_000, Media: [{ Part: [{ file: `${LIB_ROOT}/a.mp3` }] }] },
+              { ratingKey: "2", type: "track", title: "T", grandparentTitle: "",   parentTitle: "A", parentYear: 2020, duration: 100_000, Media: [{ Part: [{ file: `${LIB_ROOT}/b.mp3` }] }] },
+              { ratingKey: "3", type: "track", title: "T", grandparentTitle: "   ", parentTitle: "A", parentYear: 2020, duration: 100_000, Media: [{ Part: [{ file: `${LIB_ROOT}/c.mp3` }] }] },
+            ],
+          },
+        }),
+      );
+    });
+    const client = createPlexClient({ baseUrl: stub.url, token: "t", libraryRoot: LIB_ROOT });
+    const result = await client.fetchPlaylist(1);
+    assert.equal(result.tracks.length, 3);
+    assert.ok(
+      result.tracks.every((tr) => tr.artist === "Unknown artist"),
+      `all three should normalize to Unknown artist, got ${result.tracks.map((tr) => tr.artist).join(", ")}`,
+    );
+    const hashes = new Set(result.tracks.map((tr) => tr.fallbackHash));
+    assert.equal(hashes.size, 1, `expected one fallback hash for three identical missing-artist tracks, got ${[...hashes].join(", ")}`);
+  });
+
   it("timeout: when Plex never responds within timeoutMs → PlexApiError{kind:'timeout'}", async () => {
     stub.setHandler(async (_req, res) => {
       await new Promise(() => {});

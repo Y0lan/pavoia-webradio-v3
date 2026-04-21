@@ -1,0 +1,35 @@
+# CodeRabbit GitHub App configuration.
+# See https://docs.coderabbit.ai/reference/yaml-template for all options.
+#
+# Why this config:
+#   - CLAUDE.md mandates that every PR is opened as draft first, and only
+#     marked ready-for-review after CodeRabbit has posted a clean review.
+#     CodeRabbit's default behavior is to SKIP draft PRs, which would
+#     deadlock the workflow. Setting `drafts: true` makes drafts get
+#     reviewed automatically, which is what the workflow needs.
+#   - Language: English for review prose.
+
+language: en-US
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  # Review drafts automatically — the repo's workflow keeps PRs in draft
+  # state until the review is clean, so this is the behavior we want.
+  auto_review:
+    enabled: true
+    drafts: true
+
+  # Post review comments on push updates so incremental commits also
+  # get reviewed without needing to re-request manually.
+  finishing_touches:
+    docstrings:
+      enabled: false
+
+chat:
+  auto_reply: true

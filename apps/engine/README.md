@@ -77,7 +77,7 @@ This matches the Whatbox deploy pattern in WEEK0_LOG.md Step 2 — `@reboot` cro
 
 ## Source layout
 
-```
+```text
 src/
 ├── app.ts            # createApp(), resolvePort() — pure, no side effects on import
 ├── app.test.ts       # unit tests for resolvePort and the HTTP contract (via app.request())

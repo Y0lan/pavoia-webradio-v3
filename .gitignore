@@ -1,0 +1,43 @@
+# Node
+node_modules/
+*.log
+npm-debug.log*
+.npm
+
+# Build outputs
+dist/
+build/
+.vite/
+.next/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (NEVER commit — Plex token, Last.fm key, admin token live here)
+.env
+.env.*
+env
+config/radio/env
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Deploy artifacts (PID files, runtime logs)
+*.pid
+logs/
+deploy/*.key
+deploy/*.pem
+
+# Test / scratch
+*.sqlite
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+coverage/
+.nyc_output

@@ -1,0 +1,23 @@
+{
+  "name": "pavoia-webradio-v3",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pavoia Webradio v3 — Plex-driven HLS radio, replaces v1 + v2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --build",
+    "typecheck:clean": "tsc --build --clean",
+    "engine:dev": "npm run dev --workspace=apps/engine",
+    "web:dev": "npm run dev --workspace=apps/web",
+    "clean": "npm run typecheck:clean && rm -rf apps/*/dist packages/*/dist"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

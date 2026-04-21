@@ -1,0 +1,15 @@
+{
+  "name": "@pavoia/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "node dist/index.js",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@pavoia/shared": "0.0.0"
+  }
+}

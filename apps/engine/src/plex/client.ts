@@ -306,9 +306,18 @@ function mapEntryToTrack(
   // the library are legitimate use in this project.
   const resolved = resolvePath(firstPart.file);
   const rel = relativePath(libRootAbsolute, resolved);
+  // `rel` starts with `..` only when the path escapes the root — but we
+  // must distinguish the parent-traversal segment `..` / `../` from
+  // ordinary directory names that merely begin with dots, e.g. the band
+  // "…And You Will Know Us by the Trail of Dead" ships with folders like
+  // `...And You Will Know Us/…`. A naive `startsWith("..")` would reject
+  // those as outside-library. The correct parent-escape test is:
+  // relative path is empty (== root itself), equals `..`, or starts with
+  // `../` (POSIX) — which can only come from real parent traversal.
   const outsideLib =
     rel === "" ||
-    rel.startsWith("..") ||
+    rel === ".." ||
+    rel.startsWith("../") ||
     (rel.length >= 1 && rel[0] === "/"); // rel is absolute → outside root
   if (outsideLib) {
     onSkip({

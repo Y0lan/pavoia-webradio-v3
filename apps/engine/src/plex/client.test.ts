@@ -433,6 +433,42 @@ describe("PlexClient.fetchPlaylist", () => {
     assert.equal(result.tracks.length, 1);
   });
 
+  it("path_outside_library: accepts in-library paths whose names start with dots (e.g. '...And You Will Know Us')", async () => {
+    // Regression: a naive `rel.startsWith('..')` parent-escape check
+    // would reject real folders like "...And You Will Know Us by the
+    // Trail of Dead". They are legitimately inside the library.
+    const skips: PlexSkipReason[] = [];
+    stub.setHandler((_req, res) => {
+      res.end(
+        JSON.stringify(
+          plexPlaylistFixture({
+            metadata: [
+              entry({
+                ratingKey: "1",
+                title: "Another Morning Stoner",
+                file: `${LIB_ROOT}/...And You Will Know Us by the Trail of Dead/Source Tags & Codes/01 - Another Morning Stoner.mp3`,
+              }),
+              entry({
+                ratingKey: "2",
+                title: "Hidden",
+                file: `${LIB_ROOT}/.hidden-dir/track.mp3`,
+              }),
+            ],
+          }),
+        ),
+      );
+    });
+    const client = createPlexClient({
+      baseUrl: stub.url,
+      token: "t",
+      libraryRoot: LIB_ROOT,
+      onSkip: (r) => skips.push(r),
+    });
+    const result = await client.fetchPlaylist(1);
+    assert.equal(result.tracks.length, 2, `skips=${JSON.stringify(skips)}`);
+    assert.equal(result.skipped, 0);
+  });
+
   it("non-track Metadata entries (videos, episodes) are skipped with reason 'not_a_track'", async () => {
     const skips: PlexSkipReason[] = [];
     stub.setHandler((_req, res) => {

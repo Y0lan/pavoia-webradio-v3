@@ -577,6 +577,37 @@ describe("PlexClient.fetchPlaylist", () => {
     assert.ok(stub.requests.length >= 3, `expected multiple page requests, got ${stub.requests.length}`);
   });
 
+  it("paginates without totalSize: keeps paging until a short page arrives", async () => {
+    // Plex sometimes omits totalSize. Ensure we don't stop after the
+    // first page just because we can't read a total.
+    stub.setHandler((req, res) => {
+      const url = new URL(req.url ?? "", "http://x");
+      const start = Number(url.searchParams.get("X-Plex-Container-Start") ?? "0");
+      const all = [
+        entry({ ratingKey: "10" }),
+        entry({ ratingKey: "20" }),
+        entry({ ratingKey: "30" }),
+        entry({ ratingKey: "40" }),
+        entry({ ratingKey: "50" }),
+      ];
+      const pageSize = 2;
+      const sliced = all.slice(start, start + pageSize);
+      res.end(
+        JSON.stringify({
+          // totalSize intentionally omitted.
+          MediaContainer: { size: sliced.length, Metadata: sliced },
+        }),
+      );
+    });
+    const client = createPlexClient({ baseUrl: stub.url, token: "t", libraryRoot: LIB_ROOT });
+    const result = await client.fetchPlaylist(1);
+    assert.equal(result.tracks.length, 5);
+    assert.deepEqual(
+      result.tracks.map((t) => t.plexRatingKey),
+      [10, 20, 30, 40, 50],
+    );
+  });
+
   it("too-many-tracks: refuses a Plex response claiming totalSize > 50_000", async () => {
     stub.setHandler((_req, res) => {
       res.end(

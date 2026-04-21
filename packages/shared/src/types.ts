@@ -59,14 +59,38 @@ export type Track = {
 
 /**
  * The track shape that is safe to send to clients over HTTP or WebSocket.
- * Derived from {@link Track} by stripping `filePath`.
+ *
+ * Uses an **allowlist** projection (`Pick`) rather than a denylist
+ * (`Omit<Track, "filePath">`) so that any new engine-internal field added
+ * to {@link Track} later — a debug log path, a signed URL, a local cache
+ * marker, etc. — does NOT automatically leak to clients. Each new public
+ * field has to be added here explicitly, making the audit trail obvious.
  */
-export type PublicTrack = Omit<Track, "filePath">;
+export type PublicTrack = Pick<
+  Track,
+  | "plexRatingKey"
+  | "fallbackHash"
+  | "title"
+  | "artist"
+  | "album"
+  | "albumYear"
+  | "durationSec"
+  | "coverUrl"
+>;
 
-/** Project an engine-internal Track into a client-safe PublicTrack. */
+/** Project an engine-internal Track into a client-safe PublicTrack.
+ *  Mirrors the {@link PublicTrack} Pick — keep them in sync. */
 export function toPublicTrack(t: Track): PublicTrack {
-  const { filePath: _filePath, ...publicFields } = t;
-  return publicFields;
+  return {
+    plexRatingKey: t.plexRatingKey,
+    fallbackHash: t.fallbackHash,
+    title: t.title,
+    artist: t.artist,
+    album: t.album,
+    albumYear: t.albumYear,
+    durationSec: t.durationSec,
+    coverUrl: t.coverUrl,
+  };
 }
 
 export type NowPlaying = {

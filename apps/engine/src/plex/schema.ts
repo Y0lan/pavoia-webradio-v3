@@ -6,6 +6,12 @@
 // Optional fields use `.nullish()` because Plex is inconsistent — sometimes
 // keys are omitted, sometimes present as `null`, sometimes as empty string.
 //
+// Per-item constraints are intentionally lax (`file` can be empty/missing,
+// `Part` / `Media` can be empty arrays). A single malformed Plex row must
+// NOT fail the whole playlist with `invalid_response`; the mapper in
+// client.ts checks these fields and routes malformed rows to `skipped`
+// via the `empty_path` / `missing_media` reasons.
+//
 // References:
 //   - WEEK0_LOG.md Step 1 — verified `<Part file="...">` is a direct fs path
 //   - SLIM_V3 Codex finding #9 — "Plex API media paths may not be direct fs"
@@ -15,14 +21,14 @@ import { z } from "zod";
 
 export const PlexPart = z
   .object({
-    file: z.string().min(1),
+    file: z.string().nullish(),
     size: z.number().int().nonnegative().nullish(),
   })
   .loose();
 
 export const PlexMedia = z
   .object({
-    Part: z.array(PlexPart).min(1),
+    Part: z.array(PlexPart).nullish(),
   })
   .loose();
 
@@ -36,7 +42,7 @@ export const PlexTrackMetadata = z
     parentYear: z.number().int().nullish(),
     duration: z.number().int().nonnegative().nullish(),
     thumb: z.string().nullish(),
-    Media: z.array(PlexMedia).min(1),
+    Media: z.array(PlexMedia).nullish(),
   })
   .loose();
 

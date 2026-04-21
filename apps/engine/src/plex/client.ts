@@ -127,7 +127,7 @@ export function createPlexClient(config: PlexClientConfig): PlexClient {
     ratingKey: number,
     start: number,
     size: number,
-  ): Promise<{ size: number; totalSize: number; metadata: PlexTrackMetadataT[] }> {
+  ): Promise<{ size: number; totalSize: number | undefined; metadata: PlexTrackMetadataT[] }> {
     const url = `${root}/playlists/${ratingKey}/items?X-Plex-Container-Start=${start}&X-Plex-Container-Size=${size}`;
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), timeoutMs);
@@ -192,7 +192,11 @@ export function createPlexClient(config: PlexClientConfig): PlexClient {
       const mc = parsed.data.MediaContainer;
       const metadata = mc.Metadata ?? [];
       const pageSize = mc.size;
-      const totalSize = mc.totalSize ?? pageSize;
+      // `totalSize` is advisory. Some Plex versions omit it; collapsing
+      // undefined → pageSize would falsely cap large playlists at one
+      // page. Return undefined when unknown and let the caller keep
+      // paging until it sees an empty page or hits MAX_TOTAL_TRACKS.
+      const totalSize = mc.totalSize ?? undefined;
 
       if (pageSize > 0 && metadata.length === 0) {
         throw new PlexApiError(
@@ -218,20 +222,22 @@ export function createPlexClient(config: PlexClientConfig): PlexClient {
     const tracks: Track[] = [];
     let skipped = 0;
     let fetched = 0;
-    let totalSize = Infinity;
+    let totalSize: number | undefined;
 
-    while (fetched < totalSize) {
+    while (totalSize === undefined || fetched < totalSize) {
       const page = await fetchPage(ratingKey, fetched, REQUEST_PAGE_SIZE);
-      totalSize = page.totalSize;
+      // Adopt totalSize the first time Plex reports it. If Plex keeps
+      // omitting it, we keep paging until a short page arrives.
+      totalSize = page.totalSize ?? totalSize;
 
-      if (totalSize > MAX_TOTAL_TRACKS) {
+      if (totalSize !== undefined && totalSize > MAX_TOTAL_TRACKS) {
         throw new PlexApiError(
           { kind: "too_many_tracks", limit: MAX_TOTAL_TRACKS },
           `playlist ${ratingKey} reports totalSize=${totalSize}, refusing (limit ${MAX_TOTAL_TRACKS})`,
         );
       }
 
-      if (page.metadata.length === 0) break; // empty playlist, escape
+      if (page.metadata.length === 0) break; // nothing left, escape
 
       for (const entry of page.metadata) {
         const track = mapEntryToTrack(entry, libRootAbsolute, onSkip);
@@ -244,9 +250,15 @@ export function createPlexClient(config: PlexClientConfig): PlexClient {
 
       fetched += page.size;
 
-      // Defensive: if Plex reports totalSize but returned 0 items on a
-      // non-first page, stop to avoid an infinite loop.
-      if (page.size === 0) break;
+      // Circuit breaker: if Plex never reports totalSize, refuse to
+      // keep paging past the ceiling. Protects against a broken Plex
+      // response pinning the engine in an infinite paging loop.
+      if (totalSize === undefined && fetched >= MAX_TOTAL_TRACKS) {
+        throw new PlexApiError(
+          { kind: "too_many_tracks", limit: MAX_TOTAL_TRACKS },
+          `playlist ${ratingKey} reached ${MAX_TOTAL_TRACKS} items without Plex reporting totalSize`,
+        );
+      }
     }
 
     return { ratingKey, tracks, skipped };
@@ -270,13 +282,13 @@ function mapEntryToTrack(
     return null;
   }
 
-  const firstMedia = entry.Media[0];
+  const firstMedia = entry.Media?.[0];
   if (firstMedia === undefined) {
     onSkip({ ratingKey: entry.ratingKey, title: entry.title, reason: "missing_media" });
     return null;
   }
-  const firstPart = firstMedia.Part[0];
-  if (firstPart === undefined || firstPart.file === "") {
+  const firstPart = firstMedia.Part?.[0];
+  if (firstPart === undefined || !firstPart.file) {
     onSkip({ ratingKey: entry.ratingKey, title: entry.title, reason: "empty_path" });
     return null;
   }

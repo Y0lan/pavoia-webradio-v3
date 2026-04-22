@@ -5,7 +5,7 @@
 // unit-testable without touching process.env.
 
 import { Hono } from "hono";
-import { STAGES, AUDIO_STAGES } from "@pavoia/shared";
+import { STAGES, AUDIO_STAGES, type Stage } from "@pavoia/shared";
 
 export type HealthBody = {
   ok: true;
@@ -15,6 +15,21 @@ export type HealthBody = {
   uptimeSec: number;
   nodeVersion: string;
   stageCount: { total: number; audio: number };
+};
+
+/**
+ * Response body for `GET /api/stages`. The static catalog of all 11
+ * stages, ordered for the UI sidebar. Live values that can change
+ * per Plex playlist (title, summary, current track) are NOT here —
+ * those land in `/api/stages/:id/now` once the supervisor registry
+ * is wired in (later Task 5 slice).
+ *
+ * The `Stage` type from @pavoia/shared has no internal-only fields
+ * (no filePath, no token, etc.), so we can serialize it directly
+ * without a Pick'd public projection — unlike Track / PublicTrack.
+ */
+export type StagesBody = {
+  stages: Stage[];
 };
 
 const PORT_PATTERN = /^[1-9]\d{0,4}$/;
@@ -48,6 +63,11 @@ export function createApp(): Hono {
       nodeVersion: process.version,
       stageCount: { total: STAGES.length, audio: AUDIO_STAGES.length },
     };
+    return c.json(body);
+  });
+
+  app.get("/api/stages", (c) => {
+    const body: StagesBody = { stages: STAGES };
     return c.json(body);
   });
 

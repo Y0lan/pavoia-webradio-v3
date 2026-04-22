@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { createApp, resolvePort, type HealthBody } from "./app.ts";
+import {
+  createApp,
+  resolvePort,
+  type HealthBody,
+  type StagesBody,
+} from "./app.ts";
+import { STAGES, AUDIO_STAGES } from "@pavoia/shared";
 
 describe("resolvePort", () => {
   it("defaults to 3001 when env is undefined", () => {
@@ -136,5 +142,74 @@ describe("createApp() — HTTP contract", () => {
     const res2 = await app.request("/api/health");
     assert.equal(res1.status, 200);
     assert.equal(res2.status, 200);
+  });
+
+  it("GET /api/stages returns the static catalog of all 11 stages in order", async () => {
+    const app = createApp();
+    const res = await app.request("/api/stages");
+    assert.equal(res.status, 200);
+    assert.equal(
+      res.headers.get("content-type")?.startsWith("application/json"),
+      true,
+    );
+
+    const body = (await res.json()) as StagesBody;
+    assert.equal(body.stages.length, STAGES.length);
+    assert.equal(body.stages.length, 11);
+
+    // Order is the source-of-truth ordering from packages/shared.
+    body.stages.forEach((s, i) => {
+      assert.equal(s.id, STAGES[i]!.id, `stage ${i} id`);
+      assert.equal(s.order, STAGES[i]!.order, `stage ${i} order`);
+    });
+
+    // Every stage must carry the full UI payload — icon + gradient +
+    // accent are static (ported from v1's streamMeta), and the UI
+    // can't render without them.
+    for (const s of body.stages) {
+      assert.equal(typeof s.icon, "string");
+      assert.notEqual(s.icon, "");
+      assert.equal(typeof s.fallbackTitle, "string");
+      assert.equal(typeof s.fallbackDescription, "string");
+      assert.equal(typeof s.accent, "string");
+      assert.match(s.accent, /^#[0-9a-fA-F]{6}$/);
+      assert.equal(typeof s.gradient.from, "string");
+      assert.equal(typeof s.gradient.via, "string");
+      assert.equal(typeof s.gradient.to, "string");
+      assert.equal(typeof s.disabled, "boolean");
+    }
+
+    // The Bus mystery stage MUST be present and disabled — the UI
+    // contract for the easter-egg overlay depends on this.
+    const bus = body.stages.find((s) => s.id === "bus");
+    assert.ok(bus, "bus stage must be in the catalog");
+    assert.equal(bus.disabled, true);
+    assert.equal(bus.plexPlaylistId, null);
+
+    // Every audio stage has a Plex playlist id (positive integer —
+    // not just any number; floats would silently pass typeof "number").
+    const audioFromCatalog = body.stages.filter((s) => !s.disabled);
+    assert.equal(audioFromCatalog.length, AUDIO_STAGES.length);
+    for (const s of audioFromCatalog) {
+      assert.ok(
+        s.plexPlaylistId !== null &&
+          Number.isInteger(s.plexPlaylistId) &&
+          s.plexPlaylistId > 0,
+        `${s.id}: plexPlaylistId must be a positive integer, got ${s.plexPlaylistId}`,
+      );
+    }
+  });
+
+  it("GET /api/stages is idempotent — back-to-back calls return the same shape", async () => {
+    const app = createApp();
+    const a = (await (await app.request("/api/stages")).json()) as StagesBody;
+    const b = (await (await app.request("/api/stages")).json()) as StagesBody;
+    assert.deepEqual(a, b);
+  });
+
+  it("POST /api/stages returns 404 (only GET is defined)", async () => {
+    const app = createApp();
+    const res = await app.request("/api/stages", { method: "POST" });
+    assert.equal(res.status, 404);
   });
 });

@@ -575,21 +575,16 @@ describe("startStage — crash handling", () => {
     runner.complete({ kind: "crashed", code: 1, signal: null });
     await runner.waitForCall(3);
 
-    const nowPlaying = ctl.currentTrack();
-    assert.notEqual(
-      nowPlaying?.plexRatingKey,
-      77,
-      `currentTrack() must not report the dead track 77; got ${JSON.stringify(nowPlaying)}`,
+    // runCuratingLoop no longer assigns a "Curating" sentinel to
+    // currentTrack — the supervisor clears it before entering the
+    // branch, and the refactored curating path calls runTrackImpl
+    // directly without emitting track_started, so currentTrack stays
+    // null throughout curating mode.
+    assert.equal(
+      ctl.currentTrack(),
+      null,
+      `currentTrack() must be null during curating; got ${JSON.stringify(ctl.currentTrack())}`,
     );
-    // Acceptable: null (pre-first-segment) OR the curating sentinel
-    // (ratingKey 0 / title "Curating") — not the dead real track.
-    if (nowPlaying !== null) {
-      assert.equal(
-        nowPlaying.plexRatingKey,
-        0,
-        `currentTrack() must be the curating sentinel (kr=0), got ${nowPlaying.plexRatingKey}`,
-      );
-    }
     await ctl.stop();
   });
 

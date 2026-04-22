@@ -27,6 +27,15 @@ jobs:
       - run: node --version
       - run: npm --version
 
+      # ffmpeg drives the stage supervisor's integration tests
+      # (apps/engine/src/stages/integration.test.ts). The unit tests
+      # cover argv shape + lifecycle against mocks; the integration
+      # tests exist to catch invalid flag combos or segment-output
+      # regressions that only show up under a real ffmpeg.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: ffmpeg -version | head -1
+
       - name: Install
         run: npm ci
 

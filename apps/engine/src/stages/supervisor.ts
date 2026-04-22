@@ -649,11 +649,21 @@ export function startStage(config: StartStageConfig): StageController {
     stageId,
     status: () => status,
     currentTrack: () => currentTrack,
-    snapshot: () => ({
-      status,
-      track: currentTrack,
-      trackStartedAt: currentTrackStartedAt,
-    }),
+    snapshot: () => {
+      // Normalize the public snapshot to match the documented contract:
+      // `track` and `trackStartedAt` are null whenever the stage is not
+      // actively producing audio for a real track. The internal vars
+      // stay populated until the run loop's .finally() clears them
+      // (useful for debugging via direct currentTrack() access), but
+      // the public surface used by /api/stages/:id/now is always
+      // truthful.
+      const audible = status === "playing" || status === "curating";
+      return {
+        status,
+        track: audible ? currentTrack : null,
+        trackStartedAt: audible ? currentTrackStartedAt : null,
+      };
+    },
     stop,
     done: loop,
   };

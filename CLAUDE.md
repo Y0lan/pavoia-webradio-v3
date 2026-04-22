@@ -258,8 +258,13 @@ I will never:
   entirely clean. Specifically: never `--auto`, never on a draft PR,
   never on an unreviewed commit, never on a stale Codex review.
 - Force-push to a branch with an open PR under active CodeRabbit review.
-- Use `--no-verify` to bypass the pre-push hook unless Yolan explicitly
-  tells me to in this conversation.
+- Use `--no-verify` to bypass the pre-push hook **except** in the two
+  explicit cases:
+  (a) Yolan tells me to in this conversation, or
+  (b) the pre-push CodeRabbit hook failed and the findings are all
+      Nitpick / `[P2]` / `[P3]` / "Consider…" noise — in which case the
+      Outer-loop rule above permits `--no-verify` for that specific push.
+  No other case justifies `--no-verify`.
 - Treat a Nitpick / `[P2]` / `[P3]` / "Consider…" as blocking without a
   concrete reason it promotes to Major for this change. The severity
   gate above is what I follow.

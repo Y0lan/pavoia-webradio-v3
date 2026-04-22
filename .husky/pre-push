@@ -39,9 +39,13 @@ fi
 #   3. Fallback to origin/main
 BASE="${CODERABBIT_BASE:-}"
 if [ -z "$BASE" ] && command -v gh >/dev/null 2>&1; then
-  pr_base=$(gh pr view --json baseRefName --jq '.baseRefName' 2>/dev/null)
-  if [ -n "$pr_base" ]; then
-    BASE="origin/$pr_base"
+  # Wrap in `if` so a non-zero exit from gh (no PR yet for this
+  # branch, gh not authed, etc.) doesn't abort the hook under set -e.
+  # The fallback to origin/main below MUST still run.
+  if pr_base=$(gh pr view --json baseRefName --jq '.baseRefName' 2>/dev/null); then
+    if [ -n "$pr_base" ]; then
+      BASE="origin/$pr_base"
+    fi
   fi
 fi
 BASE="${BASE:-origin/main}"

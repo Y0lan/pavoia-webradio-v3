@@ -30,11 +30,7 @@
 import type { Track } from "@pavoia/shared";
 
 import { buildFfmpegArgs } from "./ffmpeg-args.ts";
-import {
-  cleanStageDir,
-  prepareStageDir,
-  pruneOrphanSegments,
-} from "./hls-dir.ts";
+import { cleanStageDir, prepareStageDir } from "./hls-dir.ts";
 import { runTrack, type RunTrackInput, type TrackExit } from "./runner.ts";
 
 const DEFAULT_RESTART_BACKOFF_MS = 500;
@@ -235,17 +231,26 @@ export function startStage(config: StartStageConfig): StageController {
       }
 
       if (ac.signal.aborted) return;
-      // Between ffmpeg invocations, sweep any orphan segments that the
-      // just-exited ffmpeg left behind (past its delete_segments
-      // threshold). Safe: only deletes seg-*.ts not referenced by the
-      // current index.m3u8, which listeners won't be fetching.
-      try {
-        await pruneOrphanSegments(hlsDir);
-      } catch (err) {
-        safeLog(
-          `[stage:${stageId}] prune failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      // INTENTIONALLY NO between-track pruning here.
+      //
+      // It is tempting to sweep seg-*.ts files that the just-exited
+      // ffmpeg left behind and that aren't in the current playlist —
+      // see pruneOrphanSegments in hls-dir.ts. But ffmpeg's
+      // `hls_delete_threshold` keeps those unreferenced segments on
+      // disk intentionally as a client safety buffer: listeners that
+      // fetched the playlist right before the track boundary can
+      // legitimately request segments that are no longer in the
+      // newly-written playlist. Pruning them here creates a 404
+      // window and stalls transitions.
+      //
+      // Orphans do accumulate over many track changes, but:
+      //   - Per track: at most `hls_delete_threshold` files (~48 KB each
+      //     at 128 kbps × 3 s), default 1.
+      //   - Stage dir lives in /dev/shm/1008, which Whatbox wipes on
+      //     reboot (Req F), bounding total growth.
+      //
+      // pruneOrphanSegments() is still exported for offline / on-stop
+      // cleanup use; we simply don't run it between tracks.
       i = (i + 1) % tracks.length;
     }
 

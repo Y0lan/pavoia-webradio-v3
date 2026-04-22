@@ -26,9 +26,13 @@ export { startStage, defaultSleep } from "./supervisor.ts";
 export type {
   StartStageConfig,
   StageController,
+  StageSnapshot,
   StageStatus,
   StageEvent,
   RunTrackFn,
   WaitForFirstSegmentFn,
   PreflightFn,
 } from "./supervisor.ts";
+
+export { createStageRegistry } from "./registry.ts";
+export type { StageRegistry } from "./registry.ts";

@@ -7,7 +7,45 @@ import {
   type HealthBody,
   type StagesBody,
 } from "./app.ts";
-import { STAGES, AUDIO_STAGES } from "@pavoia/shared";
+import {
+  STAGES,
+  AUDIO_STAGES,
+  type NowPlaying,
+  type Track,
+} from "@pavoia/shared";
+import { createStageRegistry } from "./stages/registry.ts";
+import type { StageController } from "./stages/supervisor.ts";
+
+function fakeController(
+  stageId: string,
+  snap: {
+    status: "starting" | "playing" | "curating" | "stopping" | "stopped";
+    track: Track | null;
+    trackStartedAt: number | null;
+  },
+): StageController {
+  return {
+    stageId,
+    status: () => snap.status,
+    currentTrack: () => snap.track,
+    snapshot: () => ({ ...snap }),
+    stop: async () => {},
+    done: Promise.resolve(),
+  };
+}
+
+const SAMPLE_TRACK: Track = {
+  plexRatingKey: 12345,
+  fallbackHash: "deadbeef00000000",
+  title: "Sunset Lift",
+  artist: "Some Artist",
+  album: "Some Album",
+  albumYear: 2024,
+  durationSec: 360,
+  // filePath is engine-internal — must NOT appear in the response.
+  filePath: "/home/yolan/files/plex_music_library/opus/sunset.opus",
+  coverUrl: "/library/metadata/12345/thumb/abc",
+};
 
 describe("resolvePort", () => {
   it("defaults to 3001 when env is undefined", () => {
@@ -210,6 +248,144 @@ describe("createApp() — HTTP contract", () => {
   it("POST /api/stages returns 404 (only GET is defined)", async () => {
     const app = createApp();
     const res = await app.request("/api/stages", { method: "POST" });
+    assert.equal(res.status, 404);
+  });
+});
+
+describe("createApp() — /api/stages/:id/now", () => {
+  it("returns 200 with the projected NowPlaying when the stage has a current track", async () => {
+    const registry = createStageRegistry();
+    registry.register(
+      fakeController("opening", {
+        status: "playing",
+        track: SAMPLE_TRACK,
+        trackStartedAt: 1_700_000_000_000,
+      }),
+    );
+    const app = createApp({ registry });
+    const res = await app.request("/api/stages/opening/now");
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as NowPlaying;
+    assert.equal(body.stageId, "opening");
+    assert.equal(body.status, "playing");
+    assert.equal(body.startedAt, 1_700_000_000_000);
+    assert.equal(body.streamUrl, "/hls/opening/index.m3u8");
+    // The Track must be projected to PublicTrack — `filePath` is
+    // engine-internal and MUST NOT appear in the response.
+    assert.equal(body.track?.title, "Sunset Lift");
+    assert.equal(body.track?.plexRatingKey, 12345);
+    assert.equal(
+      "filePath" in (body.track ?? {}),
+      false,
+      "filePath must never leak through /api/stages/:id/now",
+    );
+  });
+
+  it("returns 200 with track=null and startedAt=null while curating", async () => {
+    const registry = createStageRegistry();
+    registry.register(
+      fakeController("opening", {
+        status: "curating",
+        track: null,
+        trackStartedAt: null,
+      }),
+    );
+    const app = createApp({ registry });
+    const res = await app.request("/api/stages/opening/now");
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as NowPlaying;
+    assert.equal(body.status, "curating");
+    assert.equal(body.track, null);
+    assert.equal(body.startedAt, null);
+  });
+
+  it("returns 404 when the stage id is not in the static catalog", async () => {
+    const registry = createStageRegistry();
+    const app = createApp({ registry });
+    const res = await app.request("/api/stages/no-such-stage/now");
+    assert.equal(res.status, 404);
+    const body = (await res.json()) as { error: string; stageId: string };
+    assert.equal(body.error, "stage_not_found");
+    assert.equal(body.stageId, "no-such-stage");
+  });
+
+  it("returns 410 Gone for the disabled bus stage (no audio by design)", async () => {
+    const registry = createStageRegistry();
+    const app = createApp({ registry });
+    const res = await app.request("/api/stages/bus/now");
+    assert.equal(res.status, 410);
+    const body = (await res.json()) as { error: string; stageId: string };
+    assert.equal(body.error, "stage_has_no_audio");
+    assert.equal(body.stageId, "bus");
+  });
+
+  it("returns 503 when no registry is wired (engine not fully started)", async () => {
+    const app = createApp(); // no deps
+    const res = await app.request("/api/stages/opening/now");
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { error: string; stageId: string };
+    assert.equal(body.error, "registry_unavailable");
+    assert.equal(body.stageId, "opening");
+  });
+
+  it("returns 503 when the stage is in the catalog but no controller is registered", async () => {
+    const registry = createStageRegistry();
+    // Register a different stage so the registry is non-empty but
+    // the requested one is missing.
+    registry.register(
+      fakeController("closing", {
+        status: "playing",
+        track: SAMPLE_TRACK,
+        trackStartedAt: 1,
+      }),
+    );
+    const app = createApp({ registry });
+    const res = await app.request("/api/stages/opening/now");
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { error: string; stageId: string };
+    assert.equal(body.error, "stage_not_running");
+  });
+
+  it("snapshots are atomic — same handler call sees consistent track + startedAt", async () => {
+    // Verifies the API uses snapshot() rather than calling currentTrack()
+    // and trackStartedAt() separately (which could race with a track
+    // change mid-handler).
+    let flips = 0;
+    const flippy: StageController = {
+      stageId: "opening",
+      status: () => "playing",
+      currentTrack: () => SAMPLE_TRACK,
+      snapshot: () => {
+        flips++;
+        // If the handler called snapshot() multiple times it would
+        // see different states. Exposing the flip count via track id
+        // lets the assertion catch a regression.
+        return {
+          status: "playing",
+          track: { ...SAMPLE_TRACK, plexRatingKey: flips },
+          trackStartedAt: flips * 1000,
+        };
+      },
+      stop: async () => {},
+      done: Promise.resolve(),
+    };
+    const registry = createStageRegistry();
+    registry.register(flippy);
+    const app = createApp({ registry });
+
+    const res = await app.request("/api/stages/opening/now");
+    const body = (await res.json()) as NowPlaying;
+    assert.equal(flips, 1, "snapshot() must be called exactly once per request");
+    assert.equal(body.track?.plexRatingKey, 1);
+    assert.equal(body.startedAt, 1000);
+  });
+
+  it("POST /api/stages/:id/now returns 404 (only GET is defined)", async () => {
+    const registry = createStageRegistry();
+    const app = createApp({ registry });
+    const res = await app.request("/api/stages/opening/now", {
+      method: "POST",
+    });
     assert.equal(res.status, 404);
   });
 });

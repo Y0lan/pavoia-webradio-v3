@@ -245,12 +245,17 @@ describe("audio integrity — real ffmpeg end-to-end", () => {
         `expected ~18s of decoded audio (±slop), got ${report.durationSec.toFixed(2)}s`,
       );
 
+      // Count ONLY natural (ok) exits. track_ended also fires for
+      // { kind: "aborted" } when ctl.stop() interrupts the current
+      // ffmpeg, which would inflate the count by 1 and could mask a
+      // slow CI run producing too few real boundary crossings.
       const boundaries = events.filter(
-        (e) => e.type === "track_ended",
+        (e): e is Extract<StageEvent, { type: "track_ended" }> =>
+          e.type === "track_ended" && e.exit.kind === "ok",
       ).length;
       assert.ok(
         boundaries >= 3,
-        `expected ≥3 track boundaries in 20s, got ${boundaries}`,
+        `expected ≥3 natural track boundaries in 20s, got ${boundaries}`,
       );
 
       const crashes = events.filter((e) => e.type === "crash").length;
@@ -316,12 +321,16 @@ describe("audio integrity — real ffmpeg end-to-end", () => {
           `stage ${dirKey} has clicks: ${report.clickCount} (maxDelta=${report.maxDelta})`,
         );
 
+        // Same guard as above: only clean exits count as real
+        // track-boundary crossings. The abort from ctl.stop() would
+        // otherwise inflate the count.
         const boundaries = events[dirKey]!.filter(
-          (e) => e.type === "track_ended",
+          (e): e is Extract<StageEvent, { type: "track_ended" }> =>
+            e.type === "track_ended" && e.exit.kind === "ok",
         ).length;
         assert.ok(
           boundaries >= 3,
-          `stage ${dirKey} produced ${boundaries} boundaries, expected ≥3`,
+          `stage ${dirKey} produced ${boundaries} natural boundaries, expected ≥3`,
         );
       }
     } finally {

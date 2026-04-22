@@ -42,7 +42,7 @@
 // This module intentionally performs NO networking, NO Plex polling,
 // NO /api routing. Wiring lives in Task 5 (engine index.ts).
 
-import type { Track } from "@pavoia/shared";
+import type { StageStatus, Track } from "@pavoia/shared";
 
 import { buildFfmpegArgs } from "./ffmpeg-args.ts";
 import { cleanStageDir, prepareStageDir } from "./hls-dir.ts";
@@ -69,12 +69,9 @@ const DEFAULT_FIRST_SEGMENT_TIMEOUT_MS = 5000;
  *  timestamp and the outer loop re-enters the all-dead branch). */
 const DEADLINE_GRACE_MS = 5;
 
-export type StageStatus =
-  | "starting"
-  | "playing"
-  | "curating"
-  | "stopping"
-  | "stopped";
+// StageStatus is defined in @pavoia/shared so the web side can use the
+// same type. Re-exported here for engine-internal convenience.
+export type { StageStatus };
 
 export type StageEvent =
   | { type: "status"; status: StageStatus }
@@ -144,10 +141,28 @@ export interface StartStageConfig {
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
+/**
+ * Atomic snapshot of a stage's now-playing state. Returned by
+ * `StageController.snapshot()` so HTTP handlers can read all related
+ * fields in one go (no race between separate getters).
+ */
+export interface StageSnapshot {
+  status: StageStatus;
+  /** The currently audible track. `null` during curating, before the
+   *  first segment lands, or while stopped/stopping. */
+  track: Track | null;
+  /** Epoch ms when the current track's first segment hit disk. `null`
+   *  whenever `track` is `null`. */
+  trackStartedAt: number | null;
+}
+
 export interface StageController {
   readonly stageId: string;
   status(): StageStatus;
   currentTrack(): Track | null;
+  /** Read-once snapshot of status + track + startedAt. Atomic w.r.t.
+   *  the run-loop's writes. */
+  snapshot(): StageSnapshot;
   /** Resolves after the supervisor's run loop has exited. */
   stop(): Promise<void>;
   /** Same promise returned from stop(); also resolves on a fatal error. */
@@ -177,6 +192,7 @@ export function startStage(config: StartStageConfig): StageController {
   const ac = new AbortController();
   let status: StageStatus = "starting";
   let currentTrack: Track | null = null;
+  let currentTrackStartedAt: number | null = null;
 
   const emit = (ev: StageEvent): void => {
     try {
@@ -282,13 +298,13 @@ export function startStage(config: StartStageConfig): StageController {
         // emitted. The exit-kind switch below classifies the outcome.
       } else if (winner.seg === "ready") {
         // Honest track_started: first audio on disk, now we claim it.
-        // `currentTrack` is updated in lockstep so the API (and any
-        // downstream WebSocket feed) reports the playing track for the
-        // full duration of the audible window, not just momentarily
-        // around the track_ended event.
+        // `currentTrack` + `currentTrackStartedAt` are updated in
+        // lockstep so a snapshot read by the HTTP layer is consistent.
+        const startedAt = Date.now();
         currentTrack = track;
+        currentTrackStartedAt = startedAt;
         trackStartedEmitted = true;
-        emit({ type: "track_started", track, startedAt: Date.now() });
+        emit({ type: "track_started", track, startedAt });
       } else if (winner.seg === "timeout") {
         // Watchdog: kill the stuck ffmpeg and classify as crashed.
         watchdogFired = true;
@@ -299,11 +315,13 @@ export function startStage(config: StartStageConfig): StageController {
       }
     } else {
       // Watchdog disabled: preserve the legacy behavior of emitting
-      // track_started at spawn time. currentTrack is set at the same
-      // moment for API consistency.
+      // track_started at spawn time. currentTrack + startedAt are
+      // set at the same moment for API consistency.
+      const startedAt = Date.now();
       currentTrack = track;
+      currentTrackStartedAt = startedAt;
       trackStartedEmitted = true;
-      emit({ type: "track_started", track, startedAt: Date.now() });
+      emit({ type: "track_started", track, startedAt });
     }
 
     // 4. Always await runPromise so we don't leave a zombie promise
@@ -433,6 +451,7 @@ export function startStage(config: StartStageConfig): StageController {
           if (outcome.started) {
             emit({ type: "track_ended", track, exit: { kind: "ok" } });
             currentTrack = null;
+            currentTrackStartedAt = null;
           }
           advance = true;
           break;
@@ -446,6 +465,7 @@ export function startStage(config: StartStageConfig): StageController {
         // claim is no longer true, and the crash branch doesn't emit
         // a paired track_ended.
         currentTrack = null;
+        currentTrackStartedAt = null;
         // Don't emit track_ended here: consumers expect it paired
         // with track_started, and crash/watchdog paths don't always
         // emit track_started.
@@ -609,6 +629,7 @@ export function startStage(config: StartStageConfig): StageController {
     })
     .finally(() => {
       currentTrack = null;
+      currentTrackStartedAt = null;
       setStatus("stopped");
     });
 
@@ -628,6 +649,21 @@ export function startStage(config: StartStageConfig): StageController {
     stageId,
     status: () => status,
     currentTrack: () => currentTrack,
+    snapshot: () => {
+      // Normalize the public snapshot to match the documented contract:
+      // `track` and `trackStartedAt` are null whenever the stage is not
+      // actively producing audio for a real track. The internal vars
+      // stay populated until the run loop's .finally() clears them
+      // (useful for debugging via direct currentTrack() access), but
+      // the public surface used by /api/stages/:id/now is always
+      // truthful.
+      const audible = status === "playing" || status === "curating";
+      return {
+        status,
+        track: audible ? currentTrack : null,
+        trackStartedAt: audible ? currentTrackStartedAt : null,
+      };
+    },
     stop,
     done: loop,
   };

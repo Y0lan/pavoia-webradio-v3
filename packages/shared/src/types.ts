@@ -93,11 +93,37 @@ export function toPublicTrack(t: Track): PublicTrack {
   };
 }
 
+/**
+ * Lifecycle states of a per-stage ffmpeg supervisor. Mirrored on the
+ * client so the UI can distinguish "playing a real track" from
+ * "curating fallback" from "stopped" without duck-typing the track
+ * field. Re-exported by @pavoia/engine's stages/supervisor.ts to
+ * keep both sides on a single source of truth.
+ */
+export type StageStatus =
+  | "starting"
+  | "playing"
+  | "curating"
+  | "stopping"
+  | "stopped";
+
 export type NowPlaying = {
   stageId: StageId;
+  /** Lifecycle state at the moment of the snapshot. */
+  status: StageStatus;
+  /**
+   * The currently audible track. `null` during `curating` (fallback
+   * loop is playing, not a real track), `starting`, `stopping`, or
+   * `stopped`. Also `null` between a track ending and the next one's
+   * first segment landing on disk.
+   */
   track: PublicTrack | null;
-  /** Wall-clock epoch when the track started encoding. */
-  startedAt: number;
+  /**
+   * Wall-clock epoch ms when the current track's first segment hit
+   * disk (the supervisor's honest "now playing" moment). `null`
+   * whenever `track` is `null`.
+   */
+  startedAt: number | null;
   /** HLS m3u8 URL for this stage. */
   streamUrl: string;
 };

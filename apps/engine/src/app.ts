@@ -5,7 +5,15 @@
 // unit-testable without touching process.env.
 
 import { Hono } from "hono";
-import { STAGES, AUDIO_STAGES, type Stage } from "@pavoia/shared";
+import {
+  STAGES,
+  AUDIO_STAGES,
+  toPublicTrack,
+  type NowPlaying,
+  type Stage,
+} from "@pavoia/shared";
+
+import type { StageRegistry } from "./stages/registry.ts";
 
 export type HealthBody = {
   ok: true;
@@ -21,8 +29,7 @@ export type HealthBody = {
  * Response body for `GET /api/stages`. The static catalog of all 11
  * stages, ordered for the UI sidebar. Live values that can change
  * per Plex playlist (title, summary, current track) are NOT here —
- * those land in `/api/stages/:id/now` once the supervisor registry
- * is wired in (later Task 5 slice).
+ * `/api/stages/:id/now` exposes those.
  *
  * The `Stage` type from @pavoia/shared has no internal-only fields
  * (no filePath, no token, etc.), so we can serialize it directly
@@ -31,6 +38,16 @@ export type HealthBody = {
 export type StagesBody = {
   stages: Stage[];
 };
+
+/**
+ * Optional dependencies for the Hono app. When `registry` is provided,
+ * `/api/stages/:id/now` queries it for live state. When omitted (e.g.
+ * tests of the static surface, or the engine before supervisors have
+ * been wired in `index.ts`), `/now` returns 503.
+ */
+export interface AppDeps {
+  registry?: StageRegistry;
+}
 
 const PORT_PATTERN = /^[1-9]\d{0,4}$/;
 
@@ -50,7 +67,8 @@ export function resolvePort(raw: string | undefined): number {
   return parsed;
 }
 
-export function createApp(): Hono {
+export function createApp(deps: AppDeps = {}): Hono {
+  const { registry } = deps;
   const app = new Hono();
 
   app.get("/api/health", (c) => {
@@ -68,6 +86,57 @@ export function createApp(): Hono {
 
   app.get("/api/stages", (c) => {
     const body: StagesBody = { stages: STAGES };
+    return c.json(body);
+  });
+
+  app.get("/api/stages/:id/now", (c) => {
+    const id = c.req.param("id");
+
+    // Validate the stage id is one of the known catalog ids before
+    // we touch the registry. Returns 404 with the offending id so
+    // clients (and curl debug) get a useful message.
+    const stage = STAGES.find((s) => s.id === id);
+    if (stage === undefined) {
+      return c.json({ error: "stage_not_found", stageId: id }, 404);
+    }
+
+    // Bus is the no-audio easter egg. There's no supervisor and no
+    // HLS stream — the UI handles it as a card-only overlay. Return
+    // 410 Gone so a client that mistakenly requests its now-playing
+    // doesn't think it's a transient error.
+    if (stage.disabled) {
+      return c.json({ error: "stage_has_no_audio", stageId: id }, 410);
+    }
+
+    if (registry === undefined) {
+      // Engine running without a registry yet — `/api/stages` works
+      // (static catalog) but live state isn't available. 503 = "not
+      // ready" so a watchdog/restart doesn't escalate.
+      return c.json(
+        { error: "registry_unavailable", stageId: id },
+        503,
+      );
+    }
+
+    const controller = registry.get(id);
+    if (controller === undefined) {
+      // Catalog says the stage exists, but no supervisor is running
+      // for it. Same not-ready signal — `index.ts` may still be
+      // bringing the stage up.
+      return c.json(
+        { error: "stage_not_running", stageId: id },
+        503,
+      );
+    }
+
+    const snap = controller.snapshot();
+    const body: NowPlaying = {
+      stageId: stage.id,
+      status: snap.status,
+      track: snap.track === null ? null : toPublicTrack(snap.track),
+      startedAt: snap.trackStartedAt,
+      streamUrl: `/hls/${stage.id}/index.m3u8`,
+    };
     return c.json(body);
   });
 

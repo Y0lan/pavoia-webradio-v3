@@ -1287,6 +1287,60 @@ describe("startStage — observer safety", () => {
     assert.equal(runner.calls.length, 0);
   });
 
+  it("snapshot() reports null track + startedAt while stopping (public contract)", async () => {
+    // Codex [P2] follow-up: between stop() being called and the run
+    // loop's .finally() running, internal currentTrack stays
+    // populated. The public snapshot must NOT leak that — clients
+    // querying /api/stages/:id/now expect track === null whenever
+    // status isn't "playing" or "curating".
+    const runner = makeControlledRunner();
+    const ctl = startStage({
+      stageId: "stop-snap",
+      tracks: [makeTrack({ plexRatingKey: 7, filePath: "/m/ok.opus" })],
+      hlsDir: path.join(work, "stop-snap"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    await runner.waitForCall(1);
+    // Track is now playing (instantReadyWatcher emitted track_started
+    // synchronously after spawn, so currentTrack should be populated
+    // and the snapshot reflects it).
+    let snap = ctl.snapshot();
+    if (snap.status === "playing") {
+      assert.ok(snap.track, "playing snapshot exposes the track");
+    }
+
+    // Trigger stopping. Between this line and the loop returning,
+    // status === "stopping" but currentTrack may still be set.
+    const stopP = ctl.stop();
+
+    // Read the snapshot during the stopping window — it MUST report
+    // null track/startedAt regardless of the internal state.
+    snap = ctl.snapshot();
+    assert.notEqual(snap.status, "playing");
+    if (snap.status === "stopping" || snap.status === "stopped") {
+      assert.equal(
+        snap.track,
+        null,
+        `track must be null while ${snap.status}; got ${JSON.stringify(snap.track)}`,
+      );
+      assert.equal(snap.trackStartedAt, null);
+    }
+
+    await stopP;
+
+    // After stop completes, status is "stopped" and the snapshot
+    // remains consistent.
+    snap = ctl.snapshot();
+    assert.equal(snap.status, "stopped");
+    assert.equal(snap.track, null);
+    assert.equal(snap.trackStartedAt, null);
+  });
+
   it("a throwing onEvent does not take the supervisor down", async () => {
     const runner = makeControlledRunner();
     const ctl = startStage({

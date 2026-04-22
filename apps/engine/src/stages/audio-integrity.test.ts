@@ -184,9 +184,13 @@ async function analyzeHls(
 
 async function finalizeM3u8(m3u8: string): Promise<void> {
   const body = await readFile(m3u8, "utf8");
-  if (!body.includes("#EXT-X-ENDLIST")) {
-    await writeFile(m3u8, body + "#EXT-X-ENDLIST\n");
-  }
+  if (body.includes("#EXT-X-ENDLIST")) return;
+  // Preserve line boundaries — if the last line of the playlist
+  // doesn't end in a newline, inject one before the directive so we
+  // don't glue `seg-NNNNN.ts#EXT-X-ENDLIST` together and silently
+  // corrupt the manifest.
+  const sep = body.endsWith("\n") ? "" : "\n";
+  await writeFile(m3u8, body + sep + "#EXT-X-ENDLIST\n");
 }
 
 describe("audio integrity — real ffmpeg end-to-end", () => {
@@ -311,6 +315,9 @@ describe("audio integrity — real ffmpeg end-to-end", () => {
         await finalizeM3u8(m3u8);
         const report = await analyzeHls(m3u8, 0.1, 30);
 
+        // Mirror every single-stage assertion, per-stage, so parallel
+        // pressure on tmpfs / ffmpeg can't mask a regression on one
+        // stage by passing on the other.
         assert.ok(
           report.maxAbs < 32768 * 0.005,
           `stage ${dirKey} leaked audio energy: maxAbs=${report.maxAbs}`,
@@ -320,10 +327,12 @@ describe("audio integrity — real ffmpeg end-to-end", () => {
           0,
           `stage ${dirKey} has clicks: ${report.clickCount} (maxDelta=${report.maxDelta})`,
         );
+        assert.ok(
+          report.durationSec >= 12 && report.durationSec <= 22,
+          `stage ${dirKey} decoded ${report.durationSec.toFixed(2)}s, expected ~18s ±slop`,
+        );
 
-        // Same guard as above: only clean exits count as real
-        // track-boundary crossings. The abort from ctl.stop() would
-        // otherwise inflate the count.
+        // Only natural exits count (see single-stage test comment).
         const boundaries = events[dirKey]!.filter(
           (e): e is Extract<StageEvent, { type: "track_ended" }> =>
             e.type === "track_ended" && e.exit.kind === "ok",
@@ -331,6 +340,15 @@ describe("audio integrity — real ffmpeg end-to-end", () => {
         assert.ok(
           boundaries >= 3,
           `stage ${dirKey} produced ${boundaries} natural boundaries, expected ≥3`,
+        );
+
+        const crashes = events[dirKey]!.filter(
+          (e) => e.type === "crash",
+        ).length;
+        assert.equal(
+          crashes,
+          0,
+          `stage ${dirKey} had ${crashes} crash events under parallel load`,
         );
       }
     } finally {

@@ -251,6 +251,46 @@ describe("startStage — empty playlist / fallback", () => {
     await rm(work, { recursive: true, force: true });
   });
 
+  it("a clean exit from the -stream_loop fallback is NOT counted as a crash", async () => {
+    // Regression: -stream_loop -1 ffmpeg shouldn't exit cleanly on its
+    // own. If it does (edge case: unreadable file closing immediately),
+    // treat it as an unexpected-but-benign event — restart with backoff
+    // but do not emit { type: "crash" } nor approach the crash cap.
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+
+    const ctl = startStage({
+      stageId: "fallback-ok",
+      tracks: [],
+      hlsDir: path.join(work, "fallback-ok"),
+      fallbackFile: "/music/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      sleep: zeroSleep,
+      maxConsecutiveCrashes: 2,
+    });
+
+    // 3 "ok" exits in a row — strictly more than maxConsecutiveCrashes.
+    // If "ok" were mistakenly counted as a crash, the supervisor would
+    // have bailed out after 2 and never reached the 3rd spawn.
+    await runner.waitForCall(1);
+    runner.complete({ kind: "ok" });
+    await runner.waitForCall(2);
+    runner.complete({ kind: "ok" });
+    await runner.waitForCall(3);
+    runner.complete({ kind: "ok" });
+    await runner.waitForCall(4);
+
+    const crashEvents = events.filter((e) => e.type === "crash");
+    assert.equal(
+      crashEvents.length,
+      0,
+      "ok exit in curating mode must not emit crash events",
+    );
+
+    await ctl.stop();
+  });
+
   it("uses -stream_loop -1 on the fallback file when tracks is empty", async () => {
     const runner = makeControlledRunner();
     const events: StageEvent[] = [];

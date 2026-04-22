@@ -244,6 +244,19 @@ export function startStage(config: StartStageConfig): StageController {
 
       if (exit.kind === "aborted") return;
 
+      if (exit.kind === "ok") {
+        // With -stream_loop -1 ffmpeg is expected to run until aborted,
+        // not to exit cleanly. A clean exit is unexpected but NOT a
+        // crash — don't emit { type: "crash" } or bump the crash
+        // counter. Back off briefly so we don't hot-loop if whatever
+        // edge case caused the exit (e.g. unreadable fallback file
+        // that ffmpeg just closes) is sticky.
+        consecutiveCrashes = 0;
+        const slept = await sleepOrAbort(restartBackoffMs);
+        if (!slept) return;
+        continue;
+      }
+
       consecutiveCrashes++;
       emit({
         type: "crash",

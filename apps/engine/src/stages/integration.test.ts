@@ -105,13 +105,13 @@ describe("integration: real ffmpeg", () => {
 
     const work = await mkdtemp(path.join(tmpdir(), "pavoia-integ-"));
     let ctl: StageController | null = null;
+    // Declared outside the try so the catch block can surface them.
+    const events: StageEvent[] = [];
+    const stderrLines: string[] = [];
     try {
       const fixture = path.join(work, "silence.aac");
       const hlsDir = path.join(work, "hls");
       await writeSilentFixture(fixture, 4);
-
-      const events: StageEvent[] = [];
-      const stderrLines: string[] = [];
 
       ctl = startStage({
         stageId: "integration",
@@ -164,10 +164,20 @@ describe("integration: real ffmpeg", () => {
       await ctl.stop();
       assert.equal(ctl.status(), "stopped");
     } catch (err) {
-      // Surface ffmpeg stderr to make CI failures diagnosable.
-      const cause = err as ExecFileException & { stderr?: string };
-      if (cause?.stderr) {
-        process.stderr.write(`ffmpeg stderr:\n${cause.stderr}\n`);
+      // Surface ffmpeg diagnostics to make CI failures debuggable.
+      // Prefer the lines captured from the supervisor's ffmpeg (the one
+      // we are actually testing); fall back to ExecFileException.stderr
+      // only if the supervisor never produced any lines (e.g. the
+      // writeSilentFixture call itself failed before startStage ran).
+      if (stderrLines.length > 0) {
+        process.stderr.write(
+          `supervisor ffmpeg stderr:\n${stderrLines.join("\n")}\n`,
+        );
+      } else {
+        const cause = err as ExecFileException & { stderr?: string };
+        if (cause?.stderr) {
+          process.stderr.write(`ffmpeg stderr:\n${cause.stderr}\n`);
+        }
       }
       throw err;
     } finally {

@@ -205,6 +205,44 @@ describe("startStage — happy path", () => {
     );
   });
 
+  it("snapshots the tracks array at start — later caller mutation has no effect", async () => {
+    const runner = makeControlledRunner();
+    const t1 = makeTrack({ plexRatingKey: 10, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 20, filePath: "/m/2.opus" });
+    const callerArray = [t1, t2];
+
+    const ctl = startStage({
+      stageId: "snap",
+      tracks: callerArray,
+      hlsDir: path.join(work, "snap"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      sleep: zeroSleep,
+    });
+
+    // Mutate the caller's array AFTER startStage has returned —
+    // swap both tracks to a poisoned one. If the supervisor didn't
+    // snapshot, the next spawn would pick up the mutation.
+    const poison = makeTrack({ plexRatingKey: 999, filePath: "/poison" });
+    callerArray[0] = poison;
+    callerArray[1] = poison;
+
+    await runner.waitForCall(1);
+    runner.complete({ kind: "ok" });
+    await runner.waitForCall(2);
+
+    assert.ok(runner.calls[0], "first call exists");
+    assert.ok(runner.calls[1], "second call exists");
+    // Spawns must use the ORIGINAL tracks, not the poisoned ones.
+    assert.ok(runner.calls[0]!.argv.includes("/m/1.opus"));
+    assert.ok(runner.calls[1]!.argv.includes("/m/2.opus"));
+    // And definitely not the poison.
+    assert.ok(!runner.calls[0]!.argv.includes("/poison"));
+    assert.ok(!runner.calls[1]!.argv.includes("/poison"));
+
+    await ctl.stop();
+  });
+
   it("emits track_started + track_ended pairs with matching track", async () => {
     const runner = makeControlledRunner();
     const t = makeTrack({ plexRatingKey: 99 });

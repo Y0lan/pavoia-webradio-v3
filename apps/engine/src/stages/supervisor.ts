@@ -58,7 +58,8 @@ export type RunTrackFn = (input: RunTrackInput) => Promise<TrackExit>;
 export interface StartStageConfig {
   /** Used only for log prefixes + event payloads; no validation. */
   stageId: string;
-  /** Captured by reference at start; later mutation has no effect. */
+  /** Shallow-copied at start; later mutation of the caller's array
+   *  has no effect on the supervisor. */
   tracks: readonly Track[];
   /** Absolute HLS output directory (e.g. /dev/shm/1008/radio-hls/<stage>). */
   hlsDir: string;
@@ -95,7 +96,6 @@ export interface StageController {
 export function startStage(config: StartStageConfig): StageController {
   const {
     stageId,
-    tracks,
     hlsDir,
     fallbackFile,
     ffmpegBin = "ffmpeg",
@@ -107,6 +107,12 @@ export function startStage(config: StartStageConfig): StageController {
     runTrackImpl = runTrack,
     sleep = defaultSleep,
   } = config;
+  // Defensive shallow copy so an external mutation of the caller's
+  // array after startStage() has returned cannot change the supervisor's
+  // iteration order or inject/remove tracks mid-run. The `readonly`
+  // TypeScript constraint is a compile-time hint only — a caller could
+  // cast it away.
+  const tracks: readonly Track[] = [...config.tracks];
 
   const ac = new AbortController();
   let status: StageStatus = "starting";

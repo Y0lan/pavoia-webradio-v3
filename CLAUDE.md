@@ -155,6 +155,17 @@ From the Codex challenge + user decisions (2026-04-21):
 
 ## Review & Git workflow (non-negotiable)
 
+### Severity gate (applies globally)
+
+Only **Critical / [P1] / Major** findings block anything. Everything else
+— Nitpicks, [P2], [P3], "Consider…", refactor suggestions, optional
+idempotency improvements, style preferences — is **advisory**. I batch
+advisory findings into one cleanup commit at the end if they're cheap
+and I agree with them, otherwise I ship and you can revisit later.
+
+This reverses the "address every comment" anti-pattern that turned past
+PRs into 5+ review-round loops without materially improving the code.
+
 ### Branch discipline
 - Never commit or push directly to `main` (or `master`). Ever.
 - For any change: branch first. Naming: `feat/<slug>`, `fix/<slug>`,
@@ -162,30 +173,52 @@ From the Codex challenge + user decisions (2026-04-21):
 - If asked to make changes while on `main`, branch first, then work.
 
 ### Inner loop — between increments (fast, local)
-After each logical increment (feature slice, bugfix, refactor):
-1. `git add -A`
-2. Run `/coderabbit:review uncommitted`
-3. Address every Critical finding. Evaluate Suggestions on merit and apply
-   the ones that improve the code.
-4. Re-run `/coderabbit:review uncommitted` until no Critical remains.
-5. Commit with a Conventional Commit message (`type(scope): subject`).
-6. Move to the next increment.
 
-Increment sizing: target under 300 LOC of diff per review cycle. If larger,
-split it — do not try to review a 1000-line diff.
+**Default path:** stage → commit → push → let the pre-push CR hook +
+PR-App review + Codex run on the full diff. One review pass, not N.
+
+Running `/coderabbit:review uncommitted` between increments is
+**optional** — useful when:
+- The increment is risky (security, migration, ffmpeg / child-process
+  lifecycle code).
+- The diff is >500 LOC and I want a cheap pre-flight before committing.
+- I'm touching something I don't fully understand and want a second pair
+  of eyes before the pre-push hook.
+
+Skip it otherwise. The pre-push hook reviews the full committed diff
+anyway, so running uncommitted first just doubles the CR quota spend
+per increment and gets you rate-limited mid-PR.
+
+Increment sizing: target under 300 LOC per commit for readability, but
+don't split purely to stay under the budget — coherent slices are more
+important than small ones.
 
 ### Outer loop — PR & merge (formal gate)
 When the full feature slice is done and all increments are committed:
 1. `git push -u origin <branch>` (the pre-push hook will run CodeRabbit
-   against `origin/main` first — if it fails, fix before retrying).
+   against `origin/main` first. Failure modes:
+   - **Critical / [P1] / Major finding** → fix before retrying.
+   - **Nitpick / [P2] / [P3] / "Consider…" only** → the hook is being
+     over-cautious. These do not block under the severity gate above.
+     Log the output, file the findings for the end-of-PR batch cleanup,
+     and retry the push with `--no-verify` **for this specific push
+     only** (the general `--no-verify` ban in Hard Prohibitions below
+     still applies to all other cases). Do NOT treat Nitpick-only
+     pre-push output as a merge blocker or round-count event.)
 2. `gh pr create --draft --fill` — always draft, never ready-for-review
    on creation. Edit the body to explain the *why*, not just the *what*.
-3. Wait for the CodeRabbit GitHub App review to post as PR comments. Poll
-   with `gh pr view --comments` every 2–3 minutes. Do not spam.
-4. Read ALL findings. Address Critical + relevant Suggestions. Push fixes
-   as additional commits (never force-push during an active review —
-   CodeRabbit does incremental reviews per push).
-5. Repeat 3–4 until the PR review is clean.
+3. Wait for the CodeRabbit GitHub App + Codex reviews to land on the
+   pushed HEAD. Poll with `gh pr view --comments` every 2–3 minutes.
+4. Per the **severity gate** above: address Critical / [P1] / Major
+   findings. Batch any advisory findings I agree with into one cleanup
+   commit at the end; otherwise file them mentally as "revisit later"
+   and move on. Push as additional commits (never force-push during an
+   active review).
+5. Repeat at most **3 review rounds** post-push. If a fourth round
+   would be needed — or if CR/Codex return contradictory findings
+   across rounds (e.g. "add X" then "remove X") — **stop and flag to
+   the user** with a bullet list of outstanding findings and my
+   recommendation. User decides: batch-fix, ship as-is, or deeper dive.
 6. `gh pr ready` to mark ready for human review.
 7. Proceed to the **triple-signoff merge gate** below. Without that gate
    explicitly clean, I do not merge.
@@ -197,13 +230,13 @@ When the full feature slice is done and all increments are committed:
    no Critical / P1 / correctness / security issues. If I'm unsure,
    I'm not cleared — I stop and flag.
 2. **Codex**: `/codex review` (the `/codex` gstack skill, Review mode,
-   base = PR base branch) has been run and returns **GATE: PASS** with
-   zero `[P1]` findings. A stale Codex run from an earlier commit does
-   not count — the Codex review must cover the PR's current HEAD.
-3. **CodeRabbit**: the CodeRabbit GitHub App review is in a clean state
-   on the PR's current HEAD — no unresolved Critical / Potential-issue
-   / Major findings. CodeRabbit's status check must be `SUCCESS`, and
-   if a new commit has landed since the last CodeRabbit review, I
+   base = PR base branch) has been run and returns zero `[P1]`
+   findings on the PR's current HEAD. `[P2]` / `[P3]` findings are
+   advisory under the severity gate and do not block.
+3. **CodeRabbit**: the CodeRabbit GitHub App status check is `SUCCESS`
+   on the current HEAD, and no unresolved Critical / Major findings
+   remain. Nitpicks and "Consider…" suggestions are advisory — they
+   do not block. If a new commit has landed since CR's last review,
    trigger `@coderabbitai review` and wait for the incremental reply
    before claiming this bullet.
 4. **Mechanics**: CI is green, the PR is out of draft (`gh pr ready`
@@ -225,9 +258,16 @@ I will never:
   entirely clean. Specifically: never `--auto`, never on a draft PR,
   never on an unreviewed commit, never on a stale Codex review.
 - Force-push to a branch with an open PR under active CodeRabbit review.
-- Use `--no-verify` to bypass the pre-push hook unless Yolan explicitly
-  tells me to in this conversation.
-- Skip `/coderabbit:review uncommitted` between increments to "save time".
+- Use `--no-verify` to bypass the pre-push hook **except** in the two
+  explicit cases:
+  (a) Yolan tells me to in this conversation, or
+  (b) the pre-push CodeRabbit hook failed and the findings are all
+      Nitpick / `[P2]` / `[P3]` / "Consider…" noise — in which case the
+      Outer-loop rule above permits `--no-verify` for that specific push.
+  No other case justifies `--no-verify`.
+- Treat a Nitpick / `[P2]` / `[P3]` / "Consider…" as blocking without a
+  concrete reason it promotes to Major for this change. The severity
+  gate above is what I follow.
 - Open a non-draft PR. Always draft first, `gh pr ready` after clean.
 
 ### Fetching review feedback

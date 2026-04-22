@@ -214,7 +214,7 @@ When the full feature slice is done and all increments are committed:
    commit at the end; otherwise file them mentally as "revisit later"
    and move on. Push as additional commits (never force-push during an
    active review).
-5. Repeat at most **2 more review rounds** post-push. If a third round
+5. Repeat at most **3 review rounds** post-push. If a fourth round
    would be needed — or if CR/Codex return contradictory findings
    across rounds (e.g. "add X" then "remove X") — **stop and flag to
    the user** with a bullet list of outstanding findings and my

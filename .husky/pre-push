@@ -1,15 +1,34 @@
 #!/usr/bin/env sh
 
 # Block direct pushes to protected branches.
+# Also track whether stdin describes at least one real branch update
+# (i.e. not a tag push and not a branch deletion). If every line is a
+# tag / deletion, there's no code to review and the CodeRabbit step
+# below is skipped — otherwise a `git push --tags` or `git push origin
+# :stale-branch` would block on unrelated findings.
 remote="$1"
+has_branch_update=0
+NULL_SHA="0000000000000000000000000000000000000000"
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main|refs/heads/master)
+      # Blocked even for deletions / force-delete of main.
       echo "✗ Direct push to $remote_ref blocked. Open a PR instead."
       exit 1
       ;;
   esac
+  case "$remote_ref" in
+    refs/heads/*) ;;
+    *) continue ;; # tag pushes and other non-branch refs
+  esac
+  [ "$local_sha" = "$NULL_SHA" ] && continue # deletion
+  has_branch_update=1
 done
+
+if [ "$has_branch_update" -eq 0 ]; then
+  echo "→ No branch content update in this push; skipping CodeRabbit review."
+  exit 0
+fi
 
 # Verify the CodeRabbit CLI is installed before trying to run it.
 # The CLI is NOT an npm package — it ships via a shell installer

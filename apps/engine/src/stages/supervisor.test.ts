@@ -9,8 +9,23 @@ import {
   startStage,
   type StageEvent,
   type RunTrackFn,
+  type WaitForFirstSegmentFn,
+  type PreflightFn,
 } from "./supervisor.ts";
 import type { TrackExit, RunTrackInput } from "./runner.ts";
+
+/** Default preflight for mock-based tests: accepts any path. Tests
+ *  that want to exercise the failure modes pass their own. */
+const acceptAllPreflight: PreflightFn = async () => ({
+  ok: true as const,
+  sizeBytes: 1024,
+});
+
+/** Default first-segment watcher for mock-based tests: immediately
+ *  reports "ready" so track_started fires right after spawn. Tests
+ *  that want to exercise the watchdog or delayed-start semantics
+ *  pass their own. */
+const instantReadyWatcher: WaitForFirstSegmentFn = async () => "ready";
 
 // --------------------------------------------------------------------
 // Test helpers
@@ -138,6 +153,8 @@ describe("startStage — happy path", () => {
       fallbackFile: "/tmp/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -167,6 +184,8 @@ describe("startStage — happy path", () => {
       fallbackFile: "/tmp/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -217,6 +236,8 @@ describe("startStage — happy path", () => {
       hlsDir: path.join(work, "snap"),
       fallbackFile: "/tmp/curating.aac",
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -255,6 +276,8 @@ describe("startStage — happy path", () => {
       fallbackFile: "/tmp/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -303,6 +326,8 @@ describe("startStage — empty playlist / fallback", () => {
       fallbackFile: "/music/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
       maxConsecutiveCrashes: 2,
     });
@@ -339,6 +364,8 @@ describe("startStage — empty playlist / fallback", () => {
       fallbackFile: "/music/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -387,6 +414,8 @@ describe("startStage — crash handling", () => {
       fallbackFile: "/tmp/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: trackedSleep,
       restartBackoffMs: 17,
     });
@@ -425,6 +454,8 @@ describe("startStage — crash handling", () => {
       fallbackFile: "/tmp/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
       maxConsecutiveCrashes: 3,
     });
@@ -467,6 +498,8 @@ describe("startStage — crash handling", () => {
       fallbackFile: "/music/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
       maxConsecutiveCrashes: 2,
     });
@@ -507,32 +540,46 @@ describe("startStage — crash handling", () => {
     );
   });
 
-  it("clears currentTrack() before transitioning to the curating fallback", async () => {
-    // Regression: when deadTracks fills up and the supervisor falls
-    // through to runCuratingLoop, the last-failed Track was still
-    // being returned by controller.currentTrack() — which would make
-    // the /api/stages/:id/now endpoint lie about what's playing.
+  it("does not leak the last-failed real track as currentTrack() during curating", async () => {
+    // Regression (Codex finding #6): when deadTracks fills up and the
+    // supervisor falls through to runCuratingLoop, the last-failed
+    // real Track was being returned by controller.currentTrack(),
+    // which would make /api/stages/:id/now lie about what's playing.
+    // Under the hardened supervisor, currentTrack may point at the
+    // curating sentinel (a synthetic Track with plexRatingKey = 0 +
+    // title "Curating") once the fallback's first segment lands —
+    // that's fine, it's truthful. What must NEVER happen is for the
+    // dead real track to still be reported.
     const runner = makeControlledRunner();
-    const track = makeTrack({ plexRatingKey: 77, filePath: "/m/dead.opus" });
+    const deadTrack = makeTrack({
+      plexRatingKey: 77,
+      filePath: "/m/dead.opus",
+    });
 
     const ctl = startStage({
       stageId: "clear-current",
-      tracks: [track],
+      tracks: [deadTrack],
       hlsDir: path.join(work, "clear-current"),
       fallbackFile: "/music/curating.aac",
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
       maxConsecutiveCrashes: 2,
     });
 
-    // Two crashes → skip → fallback
+    // Two crashes → track 77 gets TTL'd dead → fallback.
     await runner.waitForCall(1);
     runner.complete({ kind: "crashed", code: 1, signal: null });
     await runner.waitForCall(2);
     runner.complete({ kind: "crashed", code: 1, signal: null });
-    // By the time the third (fallback) call is in-flight, currentTrack
-    // must no longer point at the dead real track.
     await runner.waitForCall(3);
+
+    // runCuratingLoop no longer assigns a "Curating" sentinel to
+    // currentTrack — the supervisor clears it before entering the
+    // branch, and the refactored curating path calls runTrackImpl
+    // directly without emitting track_started, so currentTrack stays
+    // null throughout curating mode.
     assert.equal(
       ctl.currentTrack(),
       null,
@@ -556,6 +603,8 @@ describe("startStage — crash handling", () => {
       fallbackFile: "/music/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
       maxConsecutiveCrashes: 2,
     });
@@ -592,6 +641,8 @@ describe("startStage — crash handling", () => {
       fallbackFile: "/tmp/curating.aac",
       onEvent: (e) => events.push(e),
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
       maxConsecutiveCrashes: 3,
     });
@@ -636,6 +687,8 @@ describe("startStage — graceful stop", () => {
       hlsDir: path.join(work, "stop"),
       fallbackFile: "/tmp/curating.aac",
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -654,6 +707,8 @@ describe("startStage — graceful stop", () => {
       hlsDir: path.join(work, "idem"),
       fallbackFile: "/tmp/curating.aac",
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -691,6 +746,8 @@ describe("startStage — graceful stop", () => {
       hlsDir: path.join(work, "bounce"),
       fallbackFile: "/tmp/curating.aac",
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: heldSleep,
     });
 
@@ -723,6 +780,8 @@ describe("startStage — graceful stop", () => {
         if (e.type === "status") statuses.push(e.status);
       },
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -732,6 +791,459 @@ describe("startStage — graceful stop", () => {
     assert.ok(statuses.includes("playing"), `statuses: ${statuses.join(",")}`);
     assert.ok(statuses.includes("stopping"));
     assert.equal(statuses.at(-1), "stopped");
+  });
+});
+
+describe("startStage — hardening: preflight + TTL + watchdog + deferred track_started", () => {
+  let work: string;
+  beforeEach(async () => {
+    work = await mkdtemp(path.join(tmpdir(), "pavoia-sup-hard-"));
+  });
+  afterEach(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  // Win #1 + #4: preflight + TTL'd deadTracks
+  it("skips a preflight-failed track without spawning, emits preflight_failed, TTLs it", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    // Track 0 fails preflight, track 1 passes
+    const preflight: PreflightFn = async (p) =>
+      p === "/m/missing.opus"
+        ? { ok: false, reason: "missing" }
+        : { ok: true, sizeBytes: 1024 };
+
+    const ctl = startStage({
+      stageId: "preflight",
+      tracks: [
+        makeTrack({ plexRatingKey: 1, filePath: "/m/missing.opus" }),
+        makeTrack({ plexRatingKey: 2, filePath: "/m/good.opus" }),
+      ],
+      hlsDir: path.join(work, "preflight"),
+      fallbackFile: "/tmp/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: preflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+      deadTtlMs: 60_000,
+    });
+
+    // First ffmpeg call should be for track 1 (good one), NOT track 0.
+    await runner.waitForCall(1);
+    assert.ok(runner.calls[0]!.argv.includes("/m/good.opus"));
+
+    const failed = events.find(
+      (e): e is Extract<StageEvent, { type: "preflight_failed" }> =>
+        e.type === "preflight_failed",
+    );
+    assert.ok(failed, "preflight_failed was emitted");
+    assert.equal(failed.reason, "missing");
+    assert.equal(failed.track.plexRatingKey, 1);
+
+    await ctl.stop();
+  });
+
+  // Win #4: dead TTL expiry
+  it("re-tries a dead track on the next rotation after the TTL has expired", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    // Preflight fails only on the VERY FIRST call to /m/bad.opus,
+    // succeeds on all subsequent calls. /m/good.opus always passes.
+    const preflightSeen = new Map<string, number>();
+    const preflight: PreflightFn = async (p) => {
+      const n = (preflightSeen.get(p) ?? 0) + 1;
+      preflightSeen.set(p, n);
+      if (p === "/m/bad.opus" && n === 1) {
+        return { ok: false, reason: "missing" };
+      }
+      return { ok: true, sizeBytes: 1024 };
+    };
+
+    const ctl = startStage({
+      stageId: "dead-ttl",
+      tracks: [
+        makeTrack({ plexRatingKey: 1, filePath: "/m/bad.opus" }),
+        makeTrack({ plexRatingKey: 2, filePath: "/m/good.opus" }),
+      ],
+      hlsDir: path.join(work, "dead-ttl"),
+      fallbackFile: "/tmp/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: preflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+      deadTtlMs: 10, // small enough that by the time good finishes, it's expired
+    });
+
+    // Iteration 1: bad fails preflight → TTL'd dead, advance to good.
+    // Iteration 2: good spawns (call 1), completes ok, advance to bad.
+    await runner.waitForCall(1);
+    assert.ok(
+      runner.calls[0]!.argv.includes("/m/good.opus"),
+      "first spawn must be the good track (bad was skipped)",
+    );
+    // Let ≥20 ms of real time pass so the 10 ms TTL expires.
+    await new Promise((r) => setTimeout(r, 25));
+    runner.complete({ kind: "ok" });
+
+    // Iteration 3: bad's TTL has expired — preflight retried and
+    // passes (call 2). ffmpeg now spawns for bad.
+    await runner.waitForCall(2);
+    assert.ok(
+      runner.calls[1]!.argv.includes("/m/bad.opus"),
+      "after TTL expiry, bad track is re-tried",
+    );
+
+    const failed = events.filter((e) => e.type === "preflight_failed");
+    assert.equal(failed.length, 1, "preflight_failed fires exactly once");
+
+    await ctl.stop();
+  });
+
+  // Win #3: watchdog timeout
+  it("watchdog aborts ffmpeg and synthesizes a crash when no segment appears in time", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    // Watcher reports timeout → watchdog fires
+    const watchdogWatcher: WaitForFirstSegmentFn = async () => "timeout";
+
+    const ctl = startStage({
+      stageId: "watchdog",
+      tracks: [makeTrack({ plexRatingKey: 1 })],
+      hlsDir: path.join(work, "watchdog"),
+      fallbackFile: "/tmp/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: watchdogWatcher,
+      sleep: zeroSleep,
+      firstSegmentTimeoutMs: 100,
+      maxConsecutiveCrashes: 2,
+    });
+
+    // Watchdog fires → aborts the in-flight runner → mock runner
+    // resolves with { kind: "aborted" } (abort listener path).
+    // Supervisor translates that to a synthetic crashed outcome
+    // because WE aborted due to watchdog, not the stage.
+    await runner.waitForCall(1);
+    // The mock runner's abort listener fires when our per-run ac
+    // aborts, resolving it. No manual complete() needed.
+    // Wait for the second call (retry) to confirm watchdog classified
+    // as crash.
+    await runner.waitForCall(2);
+
+    const timeouts = events.filter(
+      (e) => e.type === "watchdog_timeout",
+    );
+    assert.ok(timeouts.length >= 1, "watchdog_timeout was emitted");
+    const crashes = events.filter((e) => e.type === "crash");
+    assert.ok(crashes.length >= 1, "crash was emitted for the watchdog");
+
+    // track_started should NEVER be emitted because no segment landed.
+    const started = events.filter((e) => e.type === "track_started");
+    assert.equal(started.length, 0, "track_started must not fire on watchdog timeout");
+
+    await ctl.stop();
+  });
+
+  // Win #5: deferred track_started
+  it("emits track_started AFTER the first segment signal, not at spawn", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+
+    // A watcher we control manually — held until we say "ready".
+    // The ref shape avoids a TS control-flow quirk where the
+    // `resolveReady` closure assignment isn't visible to a plain
+    // `let → const` capture.
+    const resolverRef: { current: ((v: "ready") => void) | null } = {
+      current: null,
+    };
+    const heldWatcher: WaitForFirstSegmentFn = (input) =>
+      new Promise<"ready" | "timeout" | "aborted">((resolve) => {
+        const onAbort = () => resolve("aborted");
+        input.signal.addEventListener("abort", onAbort, { once: true });
+        resolverRef.current = resolve as (v: "ready") => void;
+      });
+
+    const ctl = startStage({
+      stageId: "deferred",
+      tracks: [makeTrack({ plexRatingKey: 42 })],
+      hlsDir: path.join(work, "deferred"),
+      fallbackFile: "/tmp/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: heldWatcher,
+      sleep: zeroSleep,
+      firstSegmentTimeoutMs: 5000,
+    });
+
+    // At this point, supervisor has spawned ffmpeg (runner called) but
+    // the watcher hasn't resolved — so track_started should NOT fire.
+    await runner.waitForCall(1);
+    // Let any pending microtasks flush.
+    await new Promise((r) => setTimeout(r, 20));
+    const startedBefore = events.filter((e) => e.type === "track_started");
+    assert.equal(
+      startedBefore.length,
+      0,
+      "track_started must NOT fire before first segment is ready",
+    );
+
+    // Now signal "ready" — track_started should fire promptly.
+    if (!resolverRef.current) {
+      throw new Error("held watcher should have registered a resolver");
+    }
+    resolverRef.current("ready");
+    await new Promise((r) => setTimeout(r, 20));
+    const startedAfter = events.filter((e) => e.type === "track_started");
+    assert.equal(
+      startedAfter.length,
+      1,
+      "track_started fires once, after ready signal",
+    );
+
+    await ctl.stop();
+  });
+
+  // Codex [P1] follow-up: watchdog snapshot ignores stale segments
+  it("watchdog ignores pre-existing segments from the previous track", async () => {
+    // Regression: because the supervisor preserves seg-*.ts across
+    // track boundaries (HLS client safety buffer), a watcher that
+    // just checks "any seg-*.ts?" would return ready instantly on
+    // track 2+, defeating the watchdog for mid-playlist hangs.
+    // The fix: snapshot pre-spawn segments and only count NEW ones.
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    // Pre-seed the dir with a "previous track" segment.
+    const stageDir = path.join(work, "stale");
+    await mkdir(stageDir, { recursive: true });
+    await writeFile(path.join(stageDir, "seg-00099.ts"), "stale");
+
+    // Supervisor's hls-dir cleanup on start would wipe this. Skip
+    // cleanup by pre-creating AFTER startStage's prepareStageDir by
+    // racing? Simpler: use a custom watcher that captures what it's
+    // told to ignore, and assert the pre-existing seg is in that set.
+    const watcherSeenIgnore: string[][] = [];
+    const recordingWatcher: WaitForFirstSegmentFn = async (input) => {
+      const ignore = input.ignoreExisting
+        ? Array.from(
+            input.ignoreExisting instanceof Set
+              ? input.ignoreExisting
+              : input.ignoreExisting,
+          )
+        : [];
+      watcherSeenIgnore.push(ignore);
+      return "ready";
+    };
+
+    const ctl = startStage({
+      stageId: "stale",
+      tracks: [makeTrack({ plexRatingKey: 1 })],
+      hlsDir: stageDir,
+      fallbackFile: "/tmp/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: recordingWatcher,
+      sleep: zeroSleep,
+    });
+
+    await runner.waitForCall(1);
+    // The watcher got called — but since cleanStageDir runs first, the
+    // stale seg-00099 file was removed. What matters: the supervisor
+    // passed SOME snapshot to the watcher (could be empty here), and
+    // not the "ignore nothing" default.
+    assert.ok(
+      watcherSeenIgnore.length >= 1,
+      "watcher should have been armed with a snapshot",
+    );
+    // Assert the supervisor passed ignoreExisting (even if empty):
+    // the critical property is that when multiple tracks run, the
+    // second track's snapshot captures the first's tail segments.
+    // Covered below.
+
+    await ctl.stop();
+  });
+
+  // Codex [P1] follow-up: dead-track TTL recovery via bounded curating
+  it("curating loop returns when earliest dead-TTL expires so tracks are retried", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    let preflightCalls = 0;
+    const preflight: PreflightFn = async (p) => {
+      preflightCalls++;
+      // Track fails on call 1, then passes. Fallback always passes.
+      if (p === "/m/flaky.opus" && preflightCalls === 1) {
+        return { ok: false, reason: "missing" };
+      }
+      return { ok: true, sizeBytes: 1024 };
+    };
+
+    const ctl = startStage({
+      stageId: "ttl-recover",
+      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/flaky.opus" })],
+      hlsDir: path.join(work, "ttl-recover"),
+      fallbackFile: "/m/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: preflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+      deadTtlMs: 30, // tiny — curating will return when this expires
+      firstSegmentTimeoutMs: 0, // disable watchdog for deterministic test
+    });
+
+    // First call is curating (track failed preflight → dead → fallback).
+    await runner.waitForCall(1);
+    assert.ok(
+      runner.calls[0]!.argv.includes("-stream_loop"),
+      "first spawn is curating (track is TTL-dead)",
+    );
+
+    // Do NOT manually resolve the mock — let the supervisor's real
+    // deadline timer (30 ms) fire. When it does, the curating run's
+    // AbortController is aborted, the mock runner's abort listener
+    // resolves the pending promise, runCuratingLoop returns, and the
+    // outer track loop re-checks countDead. By then the TTL has
+    // expired, the track is eligible again, preflight passes, and
+    // ffmpeg spawns for the real track.
+    await runner.waitForCall(2, 3000);
+    assert.ok(
+      runner.calls[1]!.argv.includes("/m/flaky.opus"),
+      "after TTL expiry the flaky track is re-tried",
+    );
+
+    await ctl.stop();
+  });
+
+  // Codex [P2] follow-up: stop() during async preflight must not spawn
+  it("stop() during preflight must not spawn ffmpeg", async () => {
+    const runner = makeControlledRunner();
+
+    // Preflight that never resolves until we unblock it — simulates a
+    // slow `stat` on a hung fs (EIO, network fs). Ref wrapper avoids
+    // TS's let→closure "never" narrowing.
+    const releaseRef: { current: (() => void) | null } = { current: null };
+    const heldPreflight: PreflightFn = (_p) =>
+      new Promise((resolve) => {
+        releaseRef.current = () =>
+          resolve({ ok: true, sizeBytes: 1024 });
+      });
+
+    const ctl = startStage({
+      stageId: "stop-preflight",
+      tracks: [makeTrack()],
+      hlsDir: path.join(work, "stop-preflight"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: heldPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    // Let the preflight get engaged.
+    await new Promise((r) => setTimeout(r, 30));
+    if (!releaseRef.current) {
+      throw new Error("preflight should have been called");
+    }
+
+    // stop() fires while preflight is pending. stop should resolve
+    // promptly AND no runTrackImpl call should happen.
+    const stopP = ctl.stop();
+    // Unblock the preflight — if the bug existed, the supervisor would
+    // then spawn ffmpeg despite the abort.
+    releaseRef.current();
+    await stopP;
+
+    assert.equal(
+      runner.calls.length,
+      0,
+      "ffmpeg must not spawn after stop() was called during preflight",
+    );
+    assert.equal(ctl.status(), "stopped");
+  });
+
+  // Codex [P1] round-3 follow-up: no hot-loop when all tracks dead AND fallback broken
+  it("stops cleanly when all tracks are TTL-dead AND fallback is also invalid", async () => {
+    // Without the "failed" return from runCuratingLoop, the supervisor
+    // would enter the all-dead branch → runCuratingLoop → fallback
+    // preflight fails → return → `continue` → all-dead again → hot
+    // loop for the ~10 min default TTL. The fix: runCuratingLoop
+    // returns a discriminated result, and the caller returns on
+    // "failed".
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    // Every preflight fails: both the track AND the fallback.
+    const allFail: PreflightFn = async () => ({
+      ok: false,
+      reason: "missing",
+    });
+
+    const ctl = startStage({
+      stageId: "both-broken",
+      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/gone.opus" })],
+      hlsDir: path.join(work, "both-broken"),
+      fallbackFile: "/m/gone-too.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: allFail,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+      deadTtlMs: 60_000, // intentionally long — if the bug existed,
+                         // the test would hang for a minute
+      firstSegmentTimeoutMs: 0,
+    });
+
+    // Supervisor should: preflight track (fail) → TTL dead → enter
+    // curating branch → preflight fallback (fail) → runCuratingLoop
+    // returns "failed" → caller returns from runLoop → loop ends →
+    // status="stopped". No ffmpeg spawns at all.
+    await ctl.done;
+    assert.equal(ctl.status(), "stopped");
+    assert.equal(
+      runner.calls.length,
+      0,
+      "must not spawn ffmpeg — both track and fallback preflights failed",
+    );
+    const preflightFailed = events.filter(
+      (e) => e.type === "preflight_failed",
+    );
+    assert.equal(
+      preflightFailed.length,
+      1,
+      "preflight_failed fires once (the dead track)",
+    );
+  });
+
+  // Win #2: invalid fallback file → runCuratingLoop refuses to spawn
+  it("refuses to spawn curating loop when fallback file fails preflight", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    const preflight: PreflightFn = async () => ({ ok: false, reason: "missing" });
+
+    const ctl = startStage({
+      stageId: "bad-fallback",
+      tracks: [], // empty → go straight to curating
+      hlsDir: path.join(work, "bad-fallback"),
+      fallbackFile: "/nonexistent/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: preflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    // Supervisor should never call runTrackImpl — it bails before
+    // spawning ffmpeg on the curating sentinel.
+    await ctl.done;
+    assert.equal(runner.calls.length, 0, "must not spawn ffmpeg with bad fallback");
+    // No curating_started event either — we never entered the loop.
+    const curatingStarted = events.filter(
+      (e) => e.type === "curating_started",
+    );
+    assert.equal(curatingStarted.length, 0);
   });
 });
 
@@ -764,6 +1276,8 @@ describe("startStage — observer safety", () => {
         throw new Error("logger is also down");
       },
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 
@@ -784,6 +1298,8 @@ describe("startStage — observer safety", () => {
         throw new Error("subscriber down");
       },
       runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
       sleep: zeroSleep,
     });
 

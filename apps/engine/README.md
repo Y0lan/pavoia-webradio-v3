@@ -97,9 +97,14 @@ src/
     ├── runner.test.ts             # uses `node -e` as a fake ffmpeg for portability
     ├── hls-dir.ts                 # prepare + clean the per-stage HLS output directory
     ├── hls-dir.test.ts
+    ├── preflight.ts               # fs.stat-based track validation (missing / empty / non-file)
+    ├── preflight.test.ts
+    ├── watchers.ts                # first-segment watchdog (no-progress detection)
+    ├── watchers.test.ts
     ├── supervisor.ts              # startStage() — sequential track loop, crash restart, stop()
     ├── supervisor.test.ts         # controlled-runner mock drives the full state machine
     ├── integration.test.ts        # end-to-end against real ffmpeg (auto-skips if absent)
+    ├── audio-integrity.test.ts    # decode HLS back to PCM, assert click-free + silence floor
     └── index.ts                   # public surface for the engine entry point
 ```
 
@@ -128,8 +133,11 @@ await ctl.stop();  // SIGTERM current ffmpeg, SIGKILL after 5s if stubborn
 
 - **Directory lifecycle.** `mkdir -p` on start; wipes `index.m3u8` + `seg-*.ts` from any previous run so the first spawn is a clean slate. Between tracks the dir is NOT touched — cross-track segment numbering relies on ffmpeg's `+append_list` reading the existing m3u8 (verified in WEEK0_LOG Step 3b).
 - **One ffmpeg per track (Req K).** Built from `buildFfmpegArgs()` — see that module for the full flag list and the *why* behind each one. Track boundary = ffmpeg `exit` event in Node; no stderr parsing (Req N). Critical flag: `-re` paces input at real time, so a 5-minute track takes ~5 real minutes and the rolling 6-segment, 3-second-each HLS window stays populated.
-- **Fallback for empty playlists (Req O).** When `tracks.length === 0`, wraps the input with `-stream_loop -1` so ffmpeg never exits on its own. Status stays `curating`.
-- **Crash restart.** Non-zero exit → sleeps `restartBackoffMs` (default 500 ms) → retries the SAME track. After `maxConsecutiveCrashes` in a row (default 3) on a single track, emits `skipped_after_repeated_crashes` and advances — this is the escape hatch so a single corrupt file can't hot-loop the stage.
+- **Fallback for empty playlists (Req O).** When `tracks.length === 0`, wraps the input with `-stream_loop -1` so ffmpeg never exits on its own. Status stays `curating`. The fallback file is validated via `preflightTrack` before we spawn — a missing/empty fallback exits cleanly rather than hot-looping `-stream_loop -1` failures.
+- **Pre-flight (hardening).** Every track runs through `fs.stat` before ffmpeg is spawned — missing file / dangling symlink / directory / zero-byte / sub-1 KiB files all get rejected fast as `preflight_failed`, no ffmpeg startup burned. This is the killer case for stale Plex paths (rename / rescan lag) — 3 × ENOENT-retries was self-inflicted silence.
+- **Crash restart + dead-track TTL.** Non-zero exit → sleeps `restartBackoffMs` (default 500 ms) → retries the SAME track. After `maxConsecutiveCrashes` in a row (default 3) on a single track, OR after a preflight failure, the track is marked dead for `deadTtlMs` (default 10 minutes). Transient Whatbox I/O hiccups recover on their own; genuinely corrupt files stay skipped but come back into rotation when Plex rescans. If all tracks are dead right now, the stage falls through to the curating loop.
+- **First-segment watchdog (hardening).** After spawning ffmpeg, the supervisor watches `hlsDir` for the first `seg-*.ts` to appear within `firstSegmentTimeoutMs` (default 5 s). If the deadline passes with no segment — meaning libav is hanging on an unreadable file or the kernel is stalled on tmpfs — the supervisor aborts the child and classifies the outcome as a synthetic crash. Emits `watchdog_timeout`. Set to 0 to disable (and fall back to the legacy "emit track_started at spawn" behavior).
+- **Honest now-playing.** The `track_started` event fires only after the first segment lands on disk. Before that moment the supervisor doesn't claim the track is "now playing" — `currentTrack()` and any downstream WebSocket feed show the previous track's state until there's actual audio being produced.
 - **Graceful stop.** `stop()` aborts the internal `AbortController`. The runner translates that into `SIGTERM`, escalates to `SIGKILL` after 5 s, and resolves `aborted`. `stop()` resolves after the run loop has exited and the status has transitioned to `stopped`. Idempotent: multiple concurrent `stop()` calls share the same promise.
 - **Observer safety.** A throwing `onEvent` or `onStderrLine` is swallowed — a subscriber bug can never take a stage down.
 

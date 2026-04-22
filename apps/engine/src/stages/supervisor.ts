@@ -63,6 +63,11 @@ const DEFAULT_RESTART_BACKOFF_MS = 500;
 const DEFAULT_MAX_CONSECUTIVE_CRASHES = 3;
 const DEFAULT_DEAD_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_FIRST_SEGMENT_TIMEOUT_MS = 5000;
+/** Margin added to the curating-deadline timer so it fires AFTER the
+ *  TTL has definitely elapsed (Date.now() is float, setTimeout truncates
+ *  to int — without grace, the timer can fire just before the TTL
+ *  timestamp and the outer loop re-enters the all-dead branch). */
+const DEADLINE_GRACE_MS = 5;
 
 export type StageStatus =
   | "starting"
@@ -523,11 +528,13 @@ export function startStage(config: StartStageConfig): StageController {
       let deadlineHit = false;
       let deadlineTimer: NodeJS.Timeout | undefined;
       if (until !== undefined) {
-        const remaining = Math.max(0, until - Date.now());
-        if (remaining === 0) {
-          ac.signal.removeEventListener("abort", linkStage);
-          return "deadline";
-        }
+        // Add a small grace to ensure the timer fires AFTER the TTL
+        // has definitely elapsed. setTimeout uses integer ms; Date.now()
+        // is floating-point; without the grace, the timer can fire a
+        // sub-millisecond BEFORE `until`, making the outer loop's
+        // `Date.now() >= until` check fail and re-enter the all-dead
+        // branch immediately. CI exposes this race that local doesn't.
+        const remaining = Math.max(0, until - Date.now()) + DEADLINE_GRACE_MS;
         deadlineTimer = setTimeout(() => {
           deadlineHit = true;
           curAc.abort();

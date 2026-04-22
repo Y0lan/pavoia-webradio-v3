@@ -4,7 +4,11 @@ import { mkdtemp, mkdir, writeFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { prepareStageDir, cleanStageDir } from "./hls-dir.ts";
+import {
+  prepareStageDir,
+  cleanStageDir,
+  pruneOrphanSegments,
+} from "./hls-dir.ts";
 
 describe("prepareStageDir", () => {
   let work: string;
@@ -84,5 +88,105 @@ describe("cleanStageDir", () => {
     await writeFile(path.join(d, "prefix-seg-00000.ts"), "");
     const n = await cleanStageDir(d);
     assert.equal(n, 0);
+  });
+});
+
+describe("pruneOrphanSegments", () => {
+  let work: string;
+  beforeEach(async () => {
+    work = await mkdtemp(path.join(tmpdir(), "pavoia-prune-"));
+  });
+  afterEach(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  it("returns 0 when index.m3u8 is missing (no-op)", async () => {
+    const d = path.join(work, "stage");
+    await mkdir(d);
+    await writeFile(path.join(d, "seg-00000.ts"), "a");
+    const n = await pruneOrphanSegments(d);
+    assert.equal(n, 0);
+    assert.deepEqual(await readdir(d), ["seg-00000.ts"]);
+  });
+
+  it("returns 0 for a nonexistent directory", async () => {
+    const n = await pruneOrphanSegments(path.join(work, "nope"));
+    assert.equal(n, 0);
+  });
+
+  it("deletes seg-*.ts NOT referenced by the playlist, keeps those that ARE", async () => {
+    const d = path.join(work, "stage");
+    await mkdir(d);
+    const m3u8 = [
+      "#EXTM3U",
+      "#EXT-X-VERSION:3",
+      "#EXT-X-TARGETDURATION:3",
+      "#EXT-X-MEDIA-SEQUENCE:55",
+      "#EXTINF:3.000,",
+      "seg-00055.ts",
+      "#EXTINF:3.000,",
+      "seg-00056.ts",
+      "#EXTINF:3.000,",
+      "seg-00057.ts",
+    ].join("\n") + "\n";
+    await writeFile(path.join(d, "index.m3u8"), m3u8);
+    // Live segments: referenced in playlist.
+    await writeFile(path.join(d, "seg-00055.ts"), "a");
+    await writeFile(path.join(d, "seg-00056.ts"), "b");
+    await writeFile(path.join(d, "seg-00057.ts"), "c");
+    // Orphans from a prior ffmpeg invocation.
+    await writeFile(path.join(d, "seg-00052.ts"), "x");
+    await writeFile(path.join(d, "seg-00053.ts"), "y");
+    await writeFile(path.join(d, "seg-00054.ts"), "z");
+
+    const n = await pruneOrphanSegments(d);
+    assert.equal(n, 3);
+    const remaining = (await readdir(d)).sort();
+    assert.deepEqual(remaining, [
+      "index.m3u8",
+      "seg-00055.ts",
+      "seg-00056.ts",
+      "seg-00057.ts",
+    ]);
+  });
+
+  it("handles absolute-path entries in the playlist (takes basename)", async () => {
+    const d = path.join(work, "stage");
+    await mkdir(d);
+    // Some ffmpeg configs can emit absolute paths.
+    const absPath = path.join(d, "seg-00010.ts");
+    const m3u8 = [
+      "#EXTM3U",
+      "#EXTINF:3.000,",
+      absPath,
+    ].join("\n") + "\n";
+    await writeFile(path.join(d, "index.m3u8"), m3u8);
+    await writeFile(path.join(d, "seg-00010.ts"), "a");
+    await writeFile(path.join(d, "seg-00011.ts"), "orphan");
+
+    const n = await pruneOrphanSegments(d);
+    assert.equal(n, 1);
+    const remaining = (await readdir(d)).sort();
+    assert.deepEqual(remaining, ["index.m3u8", "seg-00010.ts"]);
+  });
+
+  it("leaves non-segment files alone (curating.aac, README, etc.)", async () => {
+    const d = path.join(work, "stage");
+    await mkdir(d);
+    await writeFile(path.join(d, "index.m3u8"), "#EXTM3U\nseg-00001.ts\n");
+    await writeFile(path.join(d, "seg-00001.ts"), "live");
+    await writeFile(path.join(d, "seg-00000.ts"), "orphan");
+    await writeFile(path.join(d, "curating.aac"), "x");
+    await writeFile(path.join(d, "README"), "y");
+
+    const n = await pruneOrphanSegments(d);
+    assert.equal(n, 1);
+    const remaining = (await readdir(d)).sort();
+    assert.deepEqual(remaining, [
+      "README",
+      "curating.aac",
+      "index.m3u8",
+      "seg-00001.ts",
+    ]);
   });
 });

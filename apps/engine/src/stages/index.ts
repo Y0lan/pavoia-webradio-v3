@@ -10,7 +10,11 @@ export type { BuildFfmpegArgsInput } from "./ffmpeg-args.ts";
 export { runTrack } from "./runner.ts";
 export type { RunTrackInput, TrackExit } from "./runner.ts";
 
-export { prepareStageDir, cleanStageDir } from "./hls-dir.ts";
+export {
+  prepareStageDir,
+  cleanStageDir,
+  pruneOrphanSegments,
+} from "./hls-dir.ts";
 
 export { startStage, defaultSleep } from "./supervisor.ts";
 export type {

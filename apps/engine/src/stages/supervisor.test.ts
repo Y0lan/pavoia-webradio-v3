@@ -507,6 +507,40 @@ describe("startStage — crash handling", () => {
     );
   });
 
+  it("clears currentTrack() before transitioning to the curating fallback", async () => {
+    // Regression: when deadTracks fills up and the supervisor falls
+    // through to runCuratingLoop, the last-failed Track was still
+    // being returned by controller.currentTrack() — which would make
+    // the /api/stages/:id/now endpoint lie about what's playing.
+    const runner = makeControlledRunner();
+    const track = makeTrack({ plexRatingKey: 77, filePath: "/m/dead.opus" });
+
+    const ctl = startStage({
+      stageId: "clear-current",
+      tracks: [track],
+      hlsDir: path.join(work, "clear-current"),
+      fallbackFile: "/music/curating.aac",
+      runTrackImpl: runner.run,
+      sleep: zeroSleep,
+      maxConsecutiveCrashes: 2,
+    });
+
+    // Two crashes → skip → fallback
+    await runner.waitForCall(1);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    await runner.waitForCall(2);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    // By the time the third (fallback) call is in-flight, currentTrack
+    // must no longer point at the dead real track.
+    await runner.waitForCall(3);
+    assert.equal(
+      ctl.currentTrack(),
+      null,
+      `currentTrack() must be null during curating; got ${JSON.stringify(ctl.currentTrack())}`,
+    );
+    await ctl.stop();
+  });
+
   it("falls back to curating when every track in a multi-track playlist is dead", async () => {
     const runner = makeControlledRunner();
     const events: StageEvent[] = [];

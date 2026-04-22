@@ -30,7 +30,11 @@
 import type { Track } from "@pavoia/shared";
 
 import { buildFfmpegArgs } from "./ffmpeg-args.ts";
-import { cleanStageDir, prepareStageDir } from "./hls-dir.ts";
+import {
+  cleanStageDir,
+  prepareStageDir,
+  pruneOrphanSegments,
+} from "./hls-dir.ts";
 import { runTrack, type RunTrackInput, type TrackExit } from "./runner.ts";
 
 const DEFAULT_RESTART_BACKOFF_MS = 500;
@@ -231,12 +235,26 @@ export function startStage(config: StartStageConfig): StageController {
       }
 
       if (ac.signal.aborted) return;
+      // Between ffmpeg invocations, sweep any orphan segments that the
+      // just-exited ffmpeg left behind (past its delete_segments
+      // threshold). Safe: only deletes seg-*.ts not referenced by the
+      // current index.m3u8, which listeners won't be fetching.
+      try {
+        await pruneOrphanSegments(hlsDir);
+      } catch (err) {
+        safeLog(
+          `[stage:${stageId}] prune failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       i = (i + 1) % tracks.length;
     }
 
     // All tracks exhausted without a successful run — fall through to
-    // the fallback loop so the stage still produces a stream.
+    // the fallback loop so the stage still produces a stream. Clear
+    // currentTrack so callers querying currentTrack() during curating
+    // mode don't see the last-failed track as "now playing".
     if (!ac.signal.aborted && deadTracks.size >= tracks.length) {
+      currentTrack = null;
       await runCuratingLoop();
     }
   }

@@ -1,0 +1,96 @@
+#!/usr/bin/env sh
+
+# Block direct pushes to protected branches.
+# Also track whether stdin describes at least one real branch update
+# (i.e. not a tag push and not a branch deletion). If every line is a
+# tag / deletion, there's no code to review and the CodeRabbit step
+# below is skipped — otherwise a `git push --tags` or `git push origin
+# :stale-branch` would block on unrelated findings.
+remote="$1"
+has_branch_update=0
+NULL_SHA="0000000000000000000000000000000000000000"
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      # Blocked even for deletions / force-delete of main.
+      echo "✗ Direct push to $remote_ref blocked. Open a PR instead."
+      exit 1
+      ;;
+  esac
+  case "$remote_ref" in
+    refs/heads/*) ;;
+    *) continue ;; # tag pushes and other non-branch refs
+  esac
+  [ "$local_sha" = "$NULL_SHA" ] && continue # deletion
+  has_branch_update=1
+done
+
+if [ "$has_branch_update" -eq 0 ]; then
+  echo "→ No branch content update in this push; skipping CodeRabbit review."
+  exit 0
+fi
+
+# Verify the CodeRabbit CLI is installed before trying to run it.
+# The CLI is NOT an npm package — it ships via a shell installer
+# (https://cli.coderabbit.ai/install.sh) or `brew install coderabbit`.
+if ! command -v coderabbit >/dev/null 2>&1; then
+  cat <<MSG >&2
+✗ 'coderabbit' CLI not found on PATH.
+
+Install it (one-time, per developer):
+  curl -fsSL https://cli.coderabbit.ai/install.sh | sh
+    or
+  brew install coderabbit
+
+Then authenticate:
+  coderabbit auth login
+
+If you know what you're doing and want to skip this hook for a single push:
+  git push --no-verify
+MSG
+  exit 1
+fi
+
+# Resolve the review base so stacked PRs don't surface findings from
+# commits that belong to a parent branch. Priority:
+#   1. $CODERABBIT_BASE env var (escape hatch / CI override)
+#   2. The open PR's baseRefName via `gh` (if gh CLI is installed + authed)
+#   3. Fallback to origin/main
+# For the first push of a stacked branch (no PR yet AND base is NOT
+# main), set `CODERABBIT_BASE=origin/<parent-branch>` in your env so the
+# review doesn't include unrelated parent-branch commits.
+BASE="${CODERABBIT_BASE:-}"
+if [ -z "$BASE" ] && command -v gh >/dev/null 2>&1; then
+  # Wrap in `if` so a non-zero exit from gh (no PR yet for this
+  # branch, gh not authed, etc.) doesn't abort the hook under set -e.
+  # The fallback to origin/main below MUST still run.
+  if pr_base=$(gh pr view --json baseRefName --jq '.baseRefName' 2>/dev/null); then
+    if [ -n "$pr_base" ]; then
+      BASE="origin/$pr_base"
+    fi
+  fi
+fi
+BASE="${BASE:-origin/main}"
+
+echo "→ Running CodeRabbit review against ${BASE}..."
+# `coderabbit review --prompt-only` exits 0 in both clean and found-issues
+# states — nonzero is reserved for CLI / auth failures. Gate on the output
+# text so the hook actually blocks when CodeRabbit posts findings.
+#
+# Husky may invoke hooks with `sh -e`. A bare `review_output=$(cmd)` would
+# abort the whole hook on non-zero exit and swallow the captured stderr
+# before we can print it. Temporarily relax errexit so we can surface
+# diagnostics AND still decide policy.
+set +e
+review_output=$(coderabbit review --prompt-only --type committed --base "$BASE" 2>&1)
+review_exit=$?
+set -e
+printf "%s\n" "$review_output"
+if [ "$review_exit" -ne 0 ]; then
+  echo "✗ CodeRabbit CLI failed (exit $review_exit). Fix or --no-verify."
+  exit 1
+fi
+if ! printf "%s" "$review_output" | grep -qE "Review completed: No findings"; then
+  echo "✗ CodeRabbit flagged issues above. Fix them, or use --no-verify if intentional."
+  exit 1
+fi

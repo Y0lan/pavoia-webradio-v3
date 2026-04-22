@@ -13,12 +13,14 @@
     "engine:dev": "npm run dev --workspace=apps/engine",
     "web:dev": "npm run dev --workspace=apps/web",
     "test": "npm run test --workspaces --if-present",
-    "clean": "npm run typecheck:clean && rm -rf apps/*/dist packages/*/dist"
+    "clean": "npm run typecheck:clean && rm -rf apps/*/dist packages/*/dist",
+    "prepare": "husky"
   },
   "engines": {
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
     "typescript": "^5.7.0"
   }
 }

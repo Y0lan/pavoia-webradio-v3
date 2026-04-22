@@ -412,6 +412,103 @@ describe("startStage — crash handling", () => {
     assert.equal(skipped.track.plexRatingKey, 1);
   });
 
+  it("falls back to curating when the single track has been skipped", async () => {
+    // Regression: without the deadTracks guard, a single-track playlist
+    // with a corrupt file would hit maxConsecutiveCrashes, skip, wrap
+    // around via `i = (i + 1) % 1 = 0`, reset the counter, and re-spawn
+    // the same corrupt track forever. Fix: once all tracks are dead,
+    // transition to the -stream_loop -1 fallback.
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    const track = makeTrack({ plexRatingKey: 1, filePath: "/m/dead.opus" });
+
+    const ctl = startStage({
+      stageId: "dead-single",
+      tracks: [track],
+      hlsDir: path.join(work, "dead-single"),
+      fallbackFile: "/music/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      sleep: zeroSleep,
+      maxConsecutiveCrashes: 2,
+    });
+
+    // Two consecutive crashes hit the cap → skip → fallback
+    await runner.waitForCall(1);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    await runner.waitForCall(2);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    await runner.waitForCall(3);
+    // Third call must be the FALLBACK, not the same track again.
+    assert.ok(runner.calls[2], "third call exists");
+    const thirdArgv = runner.calls[2]!.argv;
+    assert.ok(
+      thirdArgv.includes("-stream_loop"),
+      "third spawn must be curating fallback with -stream_loop",
+    );
+    assert.equal(
+      thirdArgv[thirdArgv.indexOf("-i") + 1],
+      "/music/curating.aac",
+      "third spawn must feed the fallback file",
+    );
+
+    await ctl.stop();
+
+    const skipped = events.find(
+      (e) => e.type === "skipped_after_repeated_crashes",
+    );
+    assert.ok(skipped, "skipped_after_repeated_crashes was emitted");
+    const statuses = events
+      .filter((e): e is Extract<StageEvent, { type: "status" }> =>
+        e.type === "status",
+      )
+      .map((e) => e.status);
+    assert.ok(
+      statuses.includes("curating"),
+      `expected curating status after skip; got ${statuses.join(",")}`,
+    );
+  });
+
+  it("falls back to curating when every track in a multi-track playlist is dead", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    const tracks = [
+      makeTrack({ plexRatingKey: 1, filePath: "/m/a.opus" }),
+      makeTrack({ plexRatingKey: 2, filePath: "/m/b.opus" }),
+    ];
+
+    const ctl = startStage({
+      stageId: "all-dead",
+      tracks,
+      hlsDir: path.join(work, "all-dead"),
+      fallbackFile: "/music/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      sleep: zeroSleep,
+      maxConsecutiveCrashes: 2,
+    });
+
+    // Crash twice on track a
+    await runner.waitForCall(1);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    await runner.waitForCall(2);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    // Crash twice on track b
+    await runner.waitForCall(3);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    await runner.waitForCall(4);
+    runner.complete({ kind: "crashed", code: 1, signal: null });
+    // Next spawn must be the fallback
+    await runner.waitForCall(5);
+    assert.ok(runner.calls[4], "fifth call exists");
+    assert.ok(
+      runner.calls[4]!.argv.includes("-stream_loop"),
+      "after all tracks dead, supervisor must switch to fallback",
+    );
+
+    await ctl.stop();
+  });
+
   it("resets the consecutive-crash counter on a successful run", async () => {
     const runner = makeControlledRunner();
     const events: StageEvent[] = [];

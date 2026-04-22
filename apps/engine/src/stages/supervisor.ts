@@ -175,8 +175,19 @@ export function startStage(config: StartStageConfig): StageController {
       return;
     }
 
+    // Tracks that exceeded maxConsecutiveCrashes this session are
+    // marked dead and not re-selected. When all tracks are dead we
+    // transition to the curating fallback — this is what prevents a
+    // single-track playlist with a corrupt file from hot-looping the
+    // crash cap forever.
+    const deadTracks = new Set<number>();
     let i = 0;
     while (!ac.signal.aborted) {
+      if (deadTracks.size >= tracks.length) break; // all dead → curating
+      // Advance past any already-dead track. Safe because the guard
+      // above proves at least one track is alive.
+      while (deadTracks.has(i)) i = (i + 1) % tracks.length;
+
       const track = tracks[i];
       if (!track) {
         // Defensive: shouldn't happen given i is bounded, but satisfies
@@ -206,6 +217,7 @@ export function startStage(config: StartStageConfig): StageController {
 
         if (consecutiveCrashes >= maxConsecutiveCrashes) {
           emit({ type: "skipped_after_repeated_crashes", track });
+          deadTracks.add(i);
           break;
         }
         const slept = await sleepOrAbort(restartBackoffMs);
@@ -214,6 +226,12 @@ export function startStage(config: StartStageConfig): StageController {
 
       if (ac.signal.aborted) return;
       i = (i + 1) % tracks.length;
+    }
+
+    // All tracks exhausted without a successful run — fall through to
+    // the fallback loop so the stage still produces a stream.
+    if (!ac.signal.aborted && deadTracks.size >= tracks.length) {
+      await runCuratingLoop();
     }
   }
 

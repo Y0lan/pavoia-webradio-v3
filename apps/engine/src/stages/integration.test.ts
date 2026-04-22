@@ -26,7 +26,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Track } from "@pavoia/shared";
 
-import { startStage, type StageEvent } from "./supervisor.ts";
+import {
+  startStage,
+  type StageController,
+  type StageEvent,
+} from "./supervisor.ts";
 
 const execFile = promisify(execFileCb);
 
@@ -100,6 +104,7 @@ describe("integration: real ffmpeg", () => {
     }
 
     const work = await mkdtemp(path.join(tmpdir(), "pavoia-integ-"));
+    let ctl: StageController | null = null;
     try {
       const fixture = path.join(work, "silence.aac");
       const hlsDir = path.join(work, "hls");
@@ -108,7 +113,7 @@ describe("integration: real ffmpeg", () => {
       const events: StageEvent[] = [];
       const stderrLines: string[] = [];
 
-      const ctl = startStage({
+      ctl = startStage({
         stageId: "integration",
         tracks: [makeTrack(fixture)],
         hlsDir,
@@ -166,6 +171,13 @@ describe("integration: real ffmpeg", () => {
       }
       throw err;
     } finally {
+      // Stop the supervisor on EVERY exit path, including assertion
+      // failures. Otherwise startStage's loop keeps respawning ffmpeg
+      // after the fixture is deleted, leaking processes and potentially
+      // hanging the test runner.
+      if (ctl && ctl.status() !== "stopped") {
+        await ctl.stop().catch(() => {});
+      }
       await rm(work, { recursive: true, force: true });
     }
   });
@@ -177,6 +189,7 @@ describe("integration: real ffmpeg", () => {
     }
 
     const work = await mkdtemp(path.join(tmpdir(), "pavoia-integ-"));
+    let ctl: StageController | null = null;
     try {
       const fixture = path.join(work, "silence.aac");
       const hlsDir = path.join(work, "hls");
@@ -187,7 +200,7 @@ describe("integration: real ffmpeg", () => {
       await writeFile(path.join(hlsDir, "seg-99999.ts"), "stale");
       await writeFile(path.join(hlsDir, "index.m3u8"), "#EXTM3U\n# stale\n");
 
-      const ctl = startStage({
+      ctl = startStage({
         stageId: "clean",
         tracks: [makeTrack(fixture)],
         hlsDir,
@@ -211,6 +224,11 @@ describe("integration: real ffmpeg", () => {
 
       await ctl.stop();
     } finally {
+      // Same pattern as the first integration test — always stop the
+      // supervisor, even on assertion failure.
+      if (ctl && ctl.status() !== "stopped") {
+        await ctl.stop().catch(() => {});
+      }
       await rm(work, { recursive: true, force: true });
     }
   });

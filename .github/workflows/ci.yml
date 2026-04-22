@@ -3,8 +3,11 @@ name: ci
 on:
   push:
     branches: [main]
+  # Run CI on every pull_request — including stacked PRs whose base
+  # is a feature branch, not main. Restricting to `branches: [main]`
+  # would skip CI on intermediate stacked slices and hide regressions
+  # until final merge.
   pull_request:
-    branches: [main]
 
 jobs:
   typecheck-and-test:

@@ -84,6 +84,30 @@ describe("runTrack", () => {
     );
   });
 
+  it("drains all stderr before resolving — no race between exit and readline close", async () => {
+    // Regression: Node can emit 'exit' before readline has delivered
+    // its last stderr 'line' event. Listening on 'close' (not 'exit')
+    // is what guarantees the logger gets the final diagnostic lines.
+    // If the fix regresses, this test sometimes reports 0 lines.
+    const ac = new AbortController();
+    const lines: string[] = [];
+    const script = `
+      process.stderr.write("final diagnostic\\n");
+      process.exit(1);
+    `;
+    const result = await runTrack({
+      ffmpegBin: FAKE_FFMPEG,
+      argv: ["-e", script],
+      signal: ac.signal,
+      onStderrLine: (l) => lines.push(l),
+    });
+    assert.deepEqual(result, { kind: "crashed", code: 1, signal: null });
+    assert.ok(
+      lines.includes("final diagnostic"),
+      `final stderr line must be captured; lines=${JSON.stringify(lines)}`,
+    );
+  });
+
   it("forwards stderr to onStderrLine, split on newlines", async () => {
     const ac = new AbortController();
     const lines: string[] = [];

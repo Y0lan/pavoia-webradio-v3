@@ -107,8 +107,8 @@ export function runTrack(input: RunTrackInput): Promise<TrackExit> {
     }
 
     child.on("error", (err) => {
-      // Spawn-level failure (binary missing, EACCES). 'exit' may or may
-      // not follow depending on libuv; settle() guards against both.
+      // Spawn-level failure (binary missing, EACCES). 'close' still
+      // follows per Node docs; settle() guards against the double fire.
       try {
         onStderrLine(
           `[runner] spawn error: ${err instanceof Error ? err.message : String(err)}`,
@@ -119,7 +119,13 @@ export function runTrack(input: RunTrackInput): Promise<TrackExit> {
       settle({ kind: "crashed", code: null, signal: null });
     });
 
-    child.on("exit", (code, sig) => {
+    // Listen on 'close', NOT 'exit'. 'exit' can fire before stderr has
+    // been fully drained through readline, which loses the final lines
+    // of ffmpeg's stderr diagnostics — exactly the lines that matter
+    // when ffmpeg crashes. 'close' is guaranteed by Node to fire AFTER
+    // the stdio streams have closed. See Node docs for child_process
+    // 'close' vs 'exit'.
+    child.on("close", (code, sig) => {
       if (abortedByCaller) {
         settle({ kind: "aborted" });
       } else if (code === 0 && sig === null) {

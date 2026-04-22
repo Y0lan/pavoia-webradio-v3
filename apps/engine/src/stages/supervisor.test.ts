@@ -536,6 +536,36 @@ describe("startStage — observer safety", () => {
     await rm(work, { recursive: true, force: true });
   });
 
+  it("a throwing onStderrLine during HLS setup failure does not reject the run loop", async () => {
+    // Regression: if prepareStageDir / cleanStageDir throw AND the
+    // configured onStderrLine throws, the loop must still stop
+    // cleanly — status === "stopped" and no unhandledRejection.
+    // Root cause: internal log calls bypassed the observer guard.
+    const runner = makeControlledRunner();
+
+    // Seed a file where the supervisor will try to mkdir → ENOTDIR.
+    const file = path.join(work, "not-a-dir");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(file, "");
+
+    const ctl = startStage({
+      stageId: "setup-fail",
+      tracks: [makeTrack()],
+      hlsDir: path.join(file, "subdir"), // mkdir under a file → fails
+      fallbackFile: "/tmp/curating.aac",
+      onStderrLine: () => {
+        throw new Error("logger is also down");
+      },
+      runTrackImpl: runner.run,
+      sleep: zeroSleep,
+    });
+
+    await ctl.done;
+    assert.equal(ctl.status(), "stopped");
+    // Nothing was ever spawned because setup failed first.
+    assert.equal(runner.calls.length, 0);
+  });
+
   it("a throwing onEvent does not take the supervisor down", async () => {
     const runner = makeControlledRunner();
     const ctl = startStage({

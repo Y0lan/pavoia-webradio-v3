@@ -119,6 +119,18 @@ export function startStage(config: StartStageConfig): StageController {
       // Never let an observer bug take the stage down.
     }
   };
+  // Same guard for onStderrLine: a throwing logger must never reject
+  // the run loop or leak as an unhandledRejection. The runner already
+  // wraps its own stderr pipe; this covers the supervisor's own internal
+  // log lines (hls-dir setup failure, repeated fallback crashes, fatal
+  // catch-all, etc.).
+  const safeLog = (line: string): void => {
+    try {
+      onStderrLine(line);
+    } catch {
+      /* ignore */
+    }
+  };
   const setStatus = (s: StageStatus): void => {
     if (status === s) return;
     status = s;
@@ -148,7 +160,7 @@ export function startStage(config: StartStageConfig): StageController {
       await prepareStageDir(hlsDir);
       await cleanStageDir(hlsDir);
     } catch (err) {
-      onStderrLine(
+      safeLog(
         `[stage:${stageId}] hls dir setup failed: ${
           err instanceof Error ? err.message : String(err)
         }`,
@@ -241,7 +253,7 @@ export function startStage(config: StartStageConfig): StageController {
       });
 
       if (consecutiveCrashes >= maxConsecutiveCrashes) {
-        onStderrLine(
+        safeLog(
           `[stage:${stageId}] fallback crashed ${consecutiveCrashes} times — stopping`,
         );
         return;
@@ -262,7 +274,7 @@ export function startStage(config: StartStageConfig): StageController {
 
   const loop = runLoop()
     .catch((err) => {
-      onStderrLine(
+      safeLog(
         `[stage:${stageId}] fatal: ${err instanceof Error ? err.message : String(err)}`,
       );
     })

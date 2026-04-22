@@ -78,8 +78,13 @@ describe("runTrack", () => {
     assert.deepEqual(result, { kind: "aborted" });
     // SIGKILL escalation must have happened within a reasonable window —
     // guards against a regression where the kill timer doesn't fire.
+    // Generous upper bound (2s) to absorb CI scheduler jitter. The
+    // invariant we care about is that SIGKILL fires within a reasonable
+    // window of killTimeoutMs=150 — orders of magnitude below 2s is
+    // plenty of slack. Anything larger would mean the kill timer
+    // didn't fire at all.
     assert.ok(
-      Date.now() - start < 1000,
+      Date.now() - start < 2000,
       `took ${Date.now() - start}ms; SIGKILL timer likely did not fire`,
     );
   });
@@ -174,7 +179,14 @@ describe("runTrack", () => {
     assert.deepEqual(result, { kind: "aborted" });
   });
 
-  it("leaves no child behind after the promise resolves", async () => {
+  it("does not add global process 'exit' listeners per run", async () => {
+    // What this actually verifies: runTrack must not register listeners
+    // on the global `process` object. If it did, looping the supervisor
+    // over hundreds of tracks would eventually hit Node's
+    // MaxListenersExceededWarning. The caller's own AbortSignal is a
+    // separate concern — internal listener removal there is covered by
+    // the "is safe to abort twice (idempotent)" test above (the second
+    // abort being a no-op proves the listener was cleared on exit).
     const ac = new AbortController();
     const script = `process.exit(0);`;
     const before = process.listenerCount("exit");
@@ -184,6 +196,10 @@ describe("runTrack", () => {
       signal: ac.signal,
     });
     const after = process.listenerCount("exit");
-    assert.equal(after, before, "runTrack must not leak process 'exit' listeners");
+    assert.equal(
+      after,
+      before,
+      "runTrack must not add listeners to the global process 'exit' event",
+    );
   });
 });

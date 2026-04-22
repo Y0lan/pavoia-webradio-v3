@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Track } from "@pavoia/shared";
@@ -127,7 +127,6 @@ describe("startStage — happy path", () => {
 
     // Seed stale segments that must be removed.
     const stageDir = path.join(work, "opening");
-    const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(stageDir, { recursive: true });
     await writeFile(path.join(stageDir, "seg-00000.ts"), "x");
     await writeFile(path.join(stageDir, "index.m3u8"), "#EXTM3U\n");
@@ -585,7 +584,6 @@ describe("startStage — observer safety", () => {
 
     // Seed a file where the supervisor will try to mkdir → ENOTDIR.
     const file = path.join(work, "not-a-dir");
-    const { writeFile } = await import("node:fs/promises");
     await writeFile(file, "");
 
     const ctl = startStage({

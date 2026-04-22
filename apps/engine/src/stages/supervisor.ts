@@ -296,13 +296,18 @@ export function startStage(config: StartStageConfig): StageController {
       setStatus("stopped");
     });
 
-  async function stop(): Promise<void> {
-    if (status === "stopped") return;
+  let stopPromise: Promise<void> | null = null;
+  function stop(): Promise<void> {
+    if (status === "stopped") return Promise.resolve();
+    // Perfect idempotency: concurrent stop() callers share the identical
+    // promise, not separate microtask chains.
+    if (stopPromise) return stopPromise;
     if (!ac.signal.aborted) {
       setStatus("stopping");
       ac.abort();
     }
-    await loop;
+    stopPromise = loop;
+    return stopPromise;
   }
 
   return {

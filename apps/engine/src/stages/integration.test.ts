@@ -14,11 +14,13 @@ import {
 } from "node:child_process";
 import { promisify } from "node:util";
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
   rm,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -181,7 +183,6 @@ describe("integration: real ffmpeg", () => {
       await writeSilentFixture(fixture, 4);
 
       // Pre-seed stale files that must be cleaned.
-      const { mkdir, writeFile } = await import("node:fs/promises");
       await mkdir(hlsDir, { recursive: true });
       await writeFile(path.join(hlsDir, "seg-99999.ts"), "stale");
       await writeFile(path.join(hlsDir, "index.m3u8"), "#EXTM3U\n# stale\n");

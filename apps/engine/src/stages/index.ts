@@ -16,6 +16,12 @@ export {
   pruneOrphanSegments,
 } from "./hls-dir.ts";
 
+export { preflightTrack } from "./preflight.ts";
+export type { PreflightReason, PreflightResult } from "./preflight.ts";
+
+export { waitForFirstSegment } from "./watchers.ts";
+export type { WaitForFirstSegmentInput, WaitResult } from "./watchers.ts";
+
 export { startStage, defaultSleep } from "./supervisor.ts";
 export type {
   StartStageConfig,
@@ -23,4 +29,6 @@ export type {
   StageStatus,
   StageEvent,
   RunTrackFn,
+  WaitForFirstSegmentFn,
+  PreflightFn,
 } from "./supervisor.ts";

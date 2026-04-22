@@ -70,7 +70,17 @@ fi
 BASE="${BASE:-origin/main}"
 
 echo "→ Running CodeRabbit review against ${BASE}..."
-coderabbit review --prompt-only --type committed --base "$BASE" || {
-  echo "✗ CodeRabbit flagged issues. Fix them, or use --no-verify if intentional."
+# `coderabbit review --prompt-only` exits 0 in both clean and found-issues
+# states — nonzero is reserved for CLI / auth failures. Gate on the output
+# text so the hook actually blocks when CodeRabbit posts findings.
+review_output=$(coderabbit review --prompt-only --type committed --base "$BASE" 2>&1)
+review_exit=$?
+printf "%s\n" "$review_output"
+if [ "$review_exit" -ne 0 ]; then
+  echo "✗ CodeRabbit CLI failed (exit $review_exit). Fix or --no-verify."
   exit 1
-}
+fi
+if ! printf "%s" "$review_output" | grep -qE "Review completed: No findings"; then
+  echo "✗ CodeRabbit flagged issues above. Fix them, or use --no-verify if intentional."
+  exit 1
+fi

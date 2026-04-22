@@ -1170,6 +1170,58 @@ describe("startStage — hardening: preflight + TTL + watchdog + deferred track_
     assert.equal(ctl.status(), "stopped");
   });
 
+  // Codex [P1] round-3 follow-up: no hot-loop when all tracks dead AND fallback broken
+  it("stops cleanly when all tracks are TTL-dead AND fallback is also invalid", async () => {
+    // Without the "failed" return from runCuratingLoop, the supervisor
+    // would enter the all-dead branch → runCuratingLoop → fallback
+    // preflight fails → return → `continue` → all-dead again → hot
+    // loop for the ~10 min default TTL. The fix: runCuratingLoop
+    // returns a discriminated result, and the caller returns on
+    // "failed".
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    // Every preflight fails: both the track AND the fallback.
+    const allFail: PreflightFn = async () => ({
+      ok: false,
+      reason: "missing",
+    });
+
+    const ctl = startStage({
+      stageId: "both-broken",
+      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/gone.opus" })],
+      hlsDir: path.join(work, "both-broken"),
+      fallbackFile: "/m/gone-too.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: allFail,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+      deadTtlMs: 60_000, // intentionally long — if the bug existed,
+                         // the test would hang for a minute
+      firstSegmentTimeoutMs: 0,
+    });
+
+    // Supervisor should: preflight track (fail) → TTL dead → enter
+    // curating branch → preflight fallback (fail) → runCuratingLoop
+    // returns "failed" → caller returns from runLoop → loop ends →
+    // status="stopped". No ffmpeg spawns at all.
+    await ctl.done;
+    assert.equal(ctl.status(), "stopped");
+    assert.equal(
+      runner.calls.length,
+      0,
+      "must not spawn ffmpeg — both track and fallback preflights failed",
+    );
+    const preflightFailed = events.filter(
+      (e) => e.type === "preflight_failed",
+    );
+    assert.equal(
+      preflightFailed.length,
+      1,
+      "preflight_failed fires once (the dead track)",
+    );
+  });
+
   // Win #2: invalid fallback file → runCuratingLoop refuses to spawn
   it("refuses to spawn curating loop when fallback file fails preflight", async () => {
     const runner = makeControlledRunner();

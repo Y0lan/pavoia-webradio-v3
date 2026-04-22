@@ -384,8 +384,17 @@ export function startStage(config: StartStageConfig): StageController {
         const untils = Array.from(deadUntil.values());
         const earliest = untils.length > 0 ? Math.min(...untils) : undefined;
         currentTrack = null;
-        await runCuratingLoop(earliest);
-        continue; // re-check countDead on next iteration
+        const result = await runCuratingLoop(earliest);
+        if (result === "aborted" || result === "failed") {
+          // "aborted" — stage-wide stop. "failed" — fallback itself is
+          // unusable, so re-entering the all-dead branch would just
+          // hot-loop stat/spawn/log until the TTL expires (~10 min by
+          // default). Stop the stage cleanly instead.
+          return;
+        }
+        // "deadline" — earliest TTL has elapsed; loop so we can
+        // re-evaluate countDead and maybe retry a real track.
+        continue;
       }
       while (isDead(deadUntil, i)) i = (i + 1) % tracks.length;
 
@@ -469,8 +478,20 @@ export function startStage(config: StartStageConfig): StageController {
    * time so the outer track loop can re-check whether any dead track
    * has become retryable. When `until` is omitted (empty-playlist
    * case), the loop runs until the stage is aborted.
+   *
+   * Return value tells the caller what happened so it can decide
+   * whether to re-enter the track loop or give up:
+   *   - "aborted" — stage-wide stop; caller should return.
+   *   - "deadline" — the `until` deadline hit; caller should re-check
+   *     deadUntil (some tracks may now be eligible).
+   *   - "failed" — fallback is unusable (preflight invalid, or it hit
+   *     the consecutive-crash cap). Caller should give up on the
+   *     stage entirely; re-entering all-dead → curating would just
+   *     hot-loop stat/spawn until TTL expires.
    */
-  async function runCuratingLoop(until?: number): Promise<void> {
+  async function runCuratingLoop(
+    until?: number,
+  ): Promise<"aborted" | "deadline" | "failed"> {
     // Validate the fallback file once up front. A broken fallback is
     // fatal — nothing we can play, don't hot-loop -stream_loop -1.
     const pre = await preflightImpl(fallbackFile);
@@ -480,12 +501,12 @@ export function startStage(config: StartStageConfig): StageController {
           pre.detail ? `: ${pre.detail}` : ""
         }) — stopping`,
       );
-      return;
+      return "failed";
     }
 
     let consecutiveCrashes = 0;
     while (!ac.signal.aborted) {
-      if (until !== undefined && Date.now() >= until) return;
+      if (until !== undefined && Date.now() >= until) return "deadline";
 
       const startedAt = Date.now();
       emit({ type: "curating_started", startedAt });
@@ -505,7 +526,7 @@ export function startStage(config: StartStageConfig): StageController {
         const remaining = Math.max(0, until - Date.now());
         if (remaining === 0) {
           ac.signal.removeEventListener("abort", linkStage);
-          return;
+          return "deadline";
         }
         deadlineTimer = setTimeout(() => {
           deadlineHit = true;
@@ -530,17 +551,17 @@ export function startStage(config: StartStageConfig): StageController {
 
       emit({ type: "curating_ended", exit });
 
-      if (deadlineHit) return; // Deadline first — re-enter track loop.
-      if (ac.signal.aborted) return;
+      if (deadlineHit) return "deadline"; // re-enter track loop
+      if (ac.signal.aborted) return "aborted";
 
-      if (exit.kind === "aborted") return;
+      if (exit.kind === "aborted") return "aborted";
 
       if (exit.kind === "ok") {
         // -stream_loop -1 shouldn't exit cleanly; if it does, restart
         // with backoff but do not count as a crash.
         consecutiveCrashes = 0;
         const slept = await sleepOrAbort(restartBackoffMs);
-        if (!slept) return;
+        if (!slept) return "aborted";
         continue;
       }
 
@@ -556,11 +577,12 @@ export function startStage(config: StartStageConfig): StageController {
         safeLog(
           `[stage:${stageId}] fallback crashed ${consecutiveCrashes} times — stopping`,
         );
-        return;
+        return "failed";
       }
       const slept = await sleepOrAbort(restartBackoffMs);
-      if (!slept) return;
+      if (!slept) return "aborted";
     }
+    return "aborted";
   }
 
   async function sleepOrAbort(ms: number): Promise<boolean> {

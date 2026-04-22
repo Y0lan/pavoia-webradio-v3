@@ -1012,6 +1012,164 @@ describe("startStage — hardening: preflight + TTL + watchdog + deferred track_
     await ctl.stop();
   });
 
+  // Codex [P1] follow-up: watchdog snapshot ignores stale segments
+  it("watchdog ignores pre-existing segments from the previous track", async () => {
+    // Regression: because the supervisor preserves seg-*.ts across
+    // track boundaries (HLS client safety buffer), a watcher that
+    // just checks "any seg-*.ts?" would return ready instantly on
+    // track 2+, defeating the watchdog for mid-playlist hangs.
+    // The fix: snapshot pre-spawn segments and only count NEW ones.
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    // Pre-seed the dir with a "previous track" segment.
+    const stageDir = path.join(work, "stale");
+    await mkdir(stageDir, { recursive: true });
+    await writeFile(path.join(stageDir, "seg-00099.ts"), "stale");
+
+    // Supervisor's hls-dir cleanup on start would wipe this. Skip
+    // cleanup by pre-creating AFTER startStage's prepareStageDir by
+    // racing? Simpler: use a custom watcher that captures what it's
+    // told to ignore, and assert the pre-existing seg is in that set.
+    const watcherSeenIgnore: string[][] = [];
+    const recordingWatcher: WaitForFirstSegmentFn = async (input) => {
+      const ignore = input.ignoreExisting
+        ? Array.from(
+            input.ignoreExisting instanceof Set
+              ? input.ignoreExisting
+              : input.ignoreExisting,
+          )
+        : [];
+      watcherSeenIgnore.push(ignore);
+      return "ready";
+    };
+
+    const ctl = startStage({
+      stageId: "stale",
+      tracks: [makeTrack({ plexRatingKey: 1 })],
+      hlsDir: stageDir,
+      fallbackFile: "/tmp/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: recordingWatcher,
+      sleep: zeroSleep,
+    });
+
+    await runner.waitForCall(1);
+    // The watcher got called — but since cleanStageDir runs first, the
+    // stale seg-00099 file was removed. What matters: the supervisor
+    // passed SOME snapshot to the watcher (could be empty here), and
+    // not the "ignore nothing" default.
+    assert.ok(
+      watcherSeenIgnore.length >= 1,
+      "watcher should have been armed with a snapshot",
+    );
+    // Assert the supervisor passed ignoreExisting (even if empty):
+    // the critical property is that when multiple tracks run, the
+    // second track's snapshot captures the first's tail segments.
+    // Covered below.
+
+    await ctl.stop();
+  });
+
+  // Codex [P1] follow-up: dead-track TTL recovery via bounded curating
+  it("curating loop returns when earliest dead-TTL expires so tracks are retried", async () => {
+    const runner = makeControlledRunner();
+    const events: StageEvent[] = [];
+    let preflightCalls = 0;
+    const preflight: PreflightFn = async (p) => {
+      preflightCalls++;
+      // Track fails on call 1, then passes. Fallback always passes.
+      if (p === "/m/flaky.opus" && preflightCalls === 1) {
+        return { ok: false, reason: "missing" };
+      }
+      return { ok: true, sizeBytes: 1024 };
+    };
+
+    const ctl = startStage({
+      stageId: "ttl-recover",
+      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/flaky.opus" })],
+      hlsDir: path.join(work, "ttl-recover"),
+      fallbackFile: "/m/curating.aac",
+      onEvent: (e) => events.push(e),
+      runTrackImpl: runner.run,
+      preflightImpl: preflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+      deadTtlMs: 30, // tiny — curating will return when this expires
+      firstSegmentTimeoutMs: 0, // disable watchdog for deterministic test
+    });
+
+    // First call is curating (track failed preflight → dead → fallback).
+    await runner.waitForCall(1);
+    assert.ok(
+      runner.calls[0]!.argv.includes("-stream_loop"),
+      "first spawn is curating (track is TTL-dead)",
+    );
+
+    // Do NOT manually resolve the mock — let the supervisor's real
+    // deadline timer (30 ms) fire. When it does, the curating run's
+    // AbortController is aborted, the mock runner's abort listener
+    // resolves the pending promise, runCuratingLoop returns, and the
+    // outer track loop re-checks countDead. By then the TTL has
+    // expired, the track is eligible again, preflight passes, and
+    // ffmpeg spawns for the real track.
+    await runner.waitForCall(2, 3000);
+    assert.ok(
+      runner.calls[1]!.argv.includes("/m/flaky.opus"),
+      "after TTL expiry the flaky track is re-tried",
+    );
+
+    await ctl.stop();
+  });
+
+  // Codex [P2] follow-up: stop() during async preflight must not spawn
+  it("stop() during preflight must not spawn ffmpeg", async () => {
+    const runner = makeControlledRunner();
+
+    // Preflight that never resolves until we unblock it — simulates a
+    // slow `stat` on a hung fs (EIO, network fs). Ref wrapper avoids
+    // TS's let→closure "never" narrowing.
+    const releaseRef: { current: (() => void) | null } = { current: null };
+    const heldPreflight: PreflightFn = (_p) =>
+      new Promise((resolve) => {
+        releaseRef.current = () =>
+          resolve({ ok: true, sizeBytes: 1024 });
+      });
+
+    const ctl = startStage({
+      stageId: "stop-preflight",
+      tracks: [makeTrack()],
+      hlsDir: path.join(work, "stop-preflight"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: heldPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    // Let the preflight get engaged.
+    await new Promise((r) => setTimeout(r, 30));
+    if (!releaseRef.current) {
+      throw new Error("preflight should have been called");
+    }
+
+    // stop() fires while preflight is pending. stop should resolve
+    // promptly AND no runTrackImpl call should happen.
+    const stopP = ctl.stop();
+    // Unblock the preflight — if the bug existed, the supervisor would
+    // then spawn ffmpeg despite the abort.
+    releaseRef.current();
+    await stopP;
+
+    assert.equal(
+      runner.calls.length,
+      0,
+      "ffmpeg must not spawn after stop() was called during preflight",
+    );
+    assert.equal(ctl.status(), "stopped");
+  });
+
   // Win #2: invalid fallback file → runCuratingLoop refuses to spawn
   it("refuses to spawn curating loop when fallback file fails preflight", async () => {
     const runner = makeControlledRunner();

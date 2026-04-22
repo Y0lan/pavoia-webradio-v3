@@ -54,6 +54,7 @@ import {
 import { runTrack, type RunTrackInput, type TrackExit } from "./runner.ts";
 import {
   waitForFirstSegment,
+  snapshotExistingSegments,
   type WaitForFirstSegmentInput,
   type WaitResult,
 } from "./watchers.ts";
@@ -217,6 +218,13 @@ export function startStage(config: StartStageConfig): StageController {
     if (!pre.ok) {
       return { kind: "preflight", reason: pre.reason };
     }
+    // 1a. If the stage was stopped WHILE preflight was in-flight, we
+    //     must NOT spawn ffmpeg — the derived runAc would inherit an
+    //     already-aborted signal and the runner's abort listener
+    //     (registered with { once: true }) would never fire, so the
+    //     child would run to completion while stop() hangs waiting
+    //     for the run loop.
+    if (ac.signal.aborted) return { kind: "aborted" };
 
     // 2. Per-run AbortController derived from the stage one. The
     //    watchdog can abort the child without aborting the whole
@@ -230,6 +238,14 @@ export function startStage(config: StartStageConfig): StageController {
       stageHlsDir: hlsDir,
       loopInput,
     });
+
+    // Snapshot the segments already on disk BEFORE spawning. The
+    // supervisor deliberately preserves seg-*.ts across track
+    // boundaries (HLS client safety buffer), so without this snapshot
+    // the watcher would see the previous track's tail segments and
+    // falsely return "ready" immediately — defeating the watchdog for
+    // mid-playlist hangs.
+    const preSpawnSegments = await snapshotExistingSegments(hlsDir);
 
     const runPromise = runTrackImpl({
       ffmpegBin,
@@ -249,6 +265,7 @@ export function startStage(config: StartStageConfig): StageController {
         hlsDir,
         signal: runAc.signal,
         timeoutMs: firstSegmentTimeoutMs,
+        ignoreExisting: preSpawnSegments,
       });
       const winner = await Promise.race([
         runPromise.then(() => "exited" as const),
@@ -356,7 +373,20 @@ export function startStage(config: StartStageConfig): StageController {
     const deadUntil: DeadUntil = new Map();
     let i = 0;
     while (!ac.signal.aborted) {
-      if (countDead(deadUntil) >= tracks.length) break; // all dead → curating
+      if (countDead(deadUntil) >= tracks.length) {
+        // Every track is in the TTL'd dead set. Find the earliest
+        // expiry, run the curating fallback bounded by that deadline,
+        // and loop back — the track may be eligible again by then
+        // (Plex rescan / admin repair). This is what makes the TTL
+        // actually mean something: without the bounded curating run,
+        // `-stream_loop -1` would run forever and no track would be
+        // retried until the process restarts.
+        const untils = Array.from(deadUntil.values());
+        const earliest = untils.length > 0 ? Math.min(...untils) : undefined;
+        currentTrack = null;
+        await runCuratingLoop(earliest);
+        continue; // re-check countDead on next iteration
+      }
       while (isDead(deadUntil, i)) i = (i + 1) % tracks.length;
 
       const track = tracks[i];
@@ -426,20 +456,23 @@ export function startStage(config: StartStageConfig): StageController {
       i = (i + 1) % tracks.length;
     }
 
-    // All tracks have expired into deadUntil and none is retryable
-    // right now — fall through to the curating fallback so the stage
-    // still produces a stream. currentTrack is cleared first so
-    // callers don't see a stale now-playing.
-    if (!ac.signal.aborted && countDead(deadUntil) >= tracks.length) {
-      currentTrack = null;
-      await runCuratingLoop();
-    }
+    // NOTE: the "all tracks dead" transition is handled inside the
+    // while loop above via bounded runCuratingLoop(earliestExpiry),
+    // so dead-TTL expiries can bring tracks back. We don't need a
+    // trailing fallback here.
   }
 
-  async function runCuratingLoop(): Promise<void> {
-    // Validate the fallback file BEFORE spawning. A broken fallback is
-    // fatal for this stage — nothing we can play, don't hot-loop
-    // -stream_loop -1 failures.
+  /**
+   * Runs the fallback in -stream_loop -1 mode.
+   *
+   * When `until` is provided, the loop returns at or before that wall
+   * time so the outer track loop can re-check whether any dead track
+   * has become retryable. When `until` is omitted (empty-playlist
+   * case), the loop runs until the stage is aborted.
+   */
+  async function runCuratingLoop(until?: number): Promise<void> {
+    // Validate the fallback file once up front. A broken fallback is
+    // fatal — nothing we can play, don't hot-loop -stream_loop -1.
     const pre = await preflightImpl(fallbackFile);
     if (!pre.ok) {
       safeLog(
@@ -450,49 +483,59 @@ export function startStage(config: StartStageConfig): StageController {
       return;
     }
 
-    const sentinel: Track = {
-      plexRatingKey: 0,
-      fallbackHash: "",
-      title: "Curating",
-      artist: "Pavoia",
-      album: "Fallback",
-      albumYear: null,
-      durationSec: 0,
-      filePath: fallbackFile,
-      coverUrl: null,
-    };
-
     let consecutiveCrashes = 0;
     while (!ac.signal.aborted) {
+      if (until !== undefined && Date.now() >= until) return;
+
       const startedAt = Date.now();
       emit({ type: "curating_started", startedAt });
       setStatus("curating");
 
-      const outcome = await runOneWithWatchdog(sentinel, true);
+      // Per-iteration controller so the deadline timer can end JUST
+      // this curating run without killing the whole stage. Stage
+      // abort also aborts it; the runner translates either into
+      // SIGTERM on ffmpeg.
+      const curAc = new AbortController();
+      const linkStage = () => curAc.abort();
+      ac.signal.addEventListener("abort", linkStage, { once: true });
 
-      // Emit curating_ended with the TrackExit-shaped outcome for
-      // observability parity with track_ended.
-      const exit: TrackExit =
-        outcome.kind === "ok"
-          ? { kind: "ok" }
-          : outcome.kind === "aborted"
-            ? { kind: "aborted" }
-            : outcome.kind === "preflight"
-              ? { kind: "crashed", code: null, signal: null }
-              : outcome.exit;
-      emit({ type: "curating_ended", exit });
-
-      if (outcome.kind === "aborted") return;
-
-      if (outcome.kind === "preflight") {
-        // Fallback became invalid mid-loop (symlink swap, deletion).
-        safeLog(
-          `[stage:${stageId}] fallback file became invalid (${outcome.reason}) — stopping`,
-        );
-        return;
+      let deadlineHit = false;
+      let deadlineTimer: NodeJS.Timeout | undefined;
+      if (until !== undefined) {
+        const remaining = Math.max(0, until - Date.now());
+        if (remaining === 0) {
+          ac.signal.removeEventListener("abort", linkStage);
+          return;
+        }
+        deadlineTimer = setTimeout(() => {
+          deadlineHit = true;
+          curAc.abort();
+        }, remaining);
       }
 
-      if (outcome.kind === "ok") {
+      const argv = buildFfmpegArgs({
+        trackFilePath: fallbackFile,
+        stageHlsDir: hlsDir,
+        loopInput: true,
+      });
+      const exit = await runTrackImpl({
+        ffmpegBin,
+        argv,
+        signal: curAc.signal,
+        onStderrLine,
+        killTimeoutMs,
+      });
+      ac.signal.removeEventListener("abort", linkStage);
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+
+      emit({ type: "curating_ended", exit });
+
+      if (deadlineHit) return; // Deadline first — re-enter track loop.
+      if (ac.signal.aborted) return;
+
+      if (exit.kind === "aborted") return;
+
+      if (exit.kind === "ok") {
         // -stream_loop -1 shouldn't exit cleanly; if it does, restart
         // with backoff but do not count as a crash.
         consecutiveCrashes = 0;
@@ -505,7 +548,7 @@ export function startStage(config: StartStageConfig): StageController {
       emit({
         type: "crash",
         track: null,
-        exit: outcome.exit,
+        exit,
         consecutive: consecutiveCrashes,
       });
 

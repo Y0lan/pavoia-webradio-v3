@@ -196,8 +196,15 @@ important than small ones.
 ### Outer loop — PR & merge (formal gate)
 When the full feature slice is done and all increments are committed:
 1. `git push -u origin <branch>` (the pre-push hook will run CodeRabbit
-   against `origin/main` first — if it fails on a Critical/Major, fix
-   before retrying; if it fails on a Nitpick-only noise, investigate).
+   against `origin/main` first. Failure modes:
+   - **Critical / [P1] / Major finding** → fix before retrying.
+   - **Nitpick / [P2] / [P3] / "Consider…" only** → the hook is being
+     over-cautious. These do not block under the severity gate above.
+     Log the output, file the findings for the end-of-PR batch cleanup,
+     and retry the push with `--no-verify` **for this specific push
+     only** (the general `--no-verify` ban in Hard Prohibitions below
+     still applies to all other cases). Do NOT treat Nitpick-only
+     pre-push output as a merge blocker or round-count event.)
 2. `gh pr create --draft --fill` — always draft, never ready-for-review
    on creation. Edit the body to explain the *why*, not just the *what*.
 3. Wait for the CodeRabbit GitHub App + Codex reviews to land on the

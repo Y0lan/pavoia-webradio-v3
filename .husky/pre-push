@@ -56,6 +56,9 @@ fi
 #   1. $CODERABBIT_BASE env var (escape hatch / CI override)
 #   2. The open PR's baseRefName via `gh` (if gh CLI is installed + authed)
 #   3. Fallback to origin/main
+# For the first push of a stacked branch (no PR yet AND base is NOT
+# main), set `CODERABBIT_BASE=origin/<parent-branch>` in your env so the
+# review doesn't include unrelated parent-branch commits.
 BASE="${CODERABBIT_BASE:-}"
 if [ -z "$BASE" ] && command -v gh >/dev/null 2>&1; then
   # Wrap in `if` so a non-zero exit from gh (no PR yet for this
@@ -73,8 +76,15 @@ echo "→ Running CodeRabbit review against ${BASE}..."
 # `coderabbit review --prompt-only` exits 0 in both clean and found-issues
 # states — nonzero is reserved for CLI / auth failures. Gate on the output
 # text so the hook actually blocks when CodeRabbit posts findings.
+#
+# Husky may invoke hooks with `sh -e`. A bare `review_output=$(cmd)` would
+# abort the whole hook on non-zero exit and swallow the captured stderr
+# before we can print it. Temporarily relax errexit so we can surface
+# diagnostics AND still decide policy.
+set +e
 review_output=$(coderabbit review --prompt-only --type committed --base "$BASE" 2>&1)
 review_exit=$?
+set -e
 printf "%s\n" "$review_output"
 if [ "$review_exit" -ne 0 ]; then
   echo "✗ CodeRabbit CLI failed (exit $review_exit). Fix or --no-verify."

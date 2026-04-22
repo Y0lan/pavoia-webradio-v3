@@ -186,12 +186,17 @@ describe("createApp() — HTTP contract", () => {
     assert.equal(bus.disabled, true);
     assert.equal(bus.plexPlaylistId, null);
 
-    // Every audio stage has a Plex playlist id (positive integer).
+    // Every audio stage has a Plex playlist id (positive integer —
+    // not just any number; floats would silently pass typeof "number").
     const audioFromCatalog = body.stages.filter((s) => !s.disabled);
     assert.equal(audioFromCatalog.length, AUDIO_STAGES.length);
     for (const s of audioFromCatalog) {
-      assert.equal(typeof s.plexPlaylistId, "number");
-      assert.ok(s.plexPlaylistId !== null && s.plexPlaylistId > 0);
+      assert.ok(
+        s.plexPlaylistId !== null &&
+          Number.isInteger(s.plexPlaylistId) &&
+          s.plexPlaylistId > 0,
+        `${s.id}: plexPlaylistId must be a positive integer, got ${s.plexPlaylistId}`,
+      );
     }
   });
 

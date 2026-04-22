@@ -59,6 +59,12 @@ export function runTrack(input: RunTrackInput): Promise<TrackExit> {
     let settled = false;
     let abortedByCaller = false;
     let killTimer: NodeJS.Timeout | null = null;
+    let childClosed = false;
+    let readlineClosed = false;
+    let pendingExit: {
+      code: number | null;
+      sig: NodeJS.Signals | null;
+    } | null = null;
 
     const clearKillTimer = () => {
       if (killTimer) {
@@ -90,6 +96,27 @@ export function runTrack(input: RunTrackInput): Promise<TrackExit> {
       resolve(outcome);
     };
 
+    // Settle only after BOTH the child process has closed AND the
+    // readline interface has flushed its buffered 'line' events. On
+    // Node 25 the child 'close' event can race with readline's internal
+    // line buffering — if we resolved on 'close' alone, a tightly
+    // written "last diagnostic line + exit" sequence from ffmpeg can
+    // drop the final line. Gating on readline's own 'close' (which
+    // fires AFTER readline has emitted every line it buffered from the
+    // now-ended input stream) makes stderr delivery ordered w.r.t.
+    // resolution.
+    const tryFinish = () => {
+      if (settled || !childClosed || !readlineClosed || !pendingExit) return;
+      const { code, sig } = pendingExit;
+      if (abortedByCaller) {
+        settle({ kind: "aborted" });
+      } else if (code === 0 && sig === null) {
+        settle({ kind: "ok" });
+      } else {
+        settle({ kind: "crashed", code, signal: sig });
+      }
+    };
+
     if (child.stderr) {
       // Prevent uncaught 'error' from a broken stderr pipe crashing the
       // process. ffmpeg's stderr rarely errors, but EPIPE is possible
@@ -104,11 +131,20 @@ export function runTrack(input: RunTrackInput): Promise<TrackExit> {
         }
       });
       rl.on("error", () => {});
+      rl.on("close", () => {
+        readlineClosed = true;
+        tryFinish();
+      });
+    } else {
+      // No stderr to drain (shouldn't happen under our stdio config).
+      readlineClosed = true;
     }
 
     child.on("error", (err) => {
       // Spawn-level failure (binary missing, EACCES). 'close' still
-      // follows per Node docs; settle() guards against the double fire.
+      // follows per Node docs; settle() below guards against the double
+      // fire. On spawn failure we resolve immediately — there's no
+      // meaningful stderr to wait for.
       try {
         onStderrLine(
           `[runner] spawn error: ${err instanceof Error ? err.message : String(err)}`,
@@ -119,20 +155,10 @@ export function runTrack(input: RunTrackInput): Promise<TrackExit> {
       settle({ kind: "crashed", code: null, signal: null });
     });
 
-    // Listen on 'close', NOT 'exit'. 'exit' can fire before stderr has
-    // been fully drained through readline, which loses the final lines
-    // of ffmpeg's stderr diagnostics — exactly the lines that matter
-    // when ffmpeg crashes. 'close' is guaranteed by Node to fire AFTER
-    // the stdio streams have closed. See Node docs for child_process
-    // 'close' vs 'exit'.
     child.on("close", (code, sig) => {
-      if (abortedByCaller) {
-        settle({ kind: "aborted" });
-      } else if (code === 0 && sig === null) {
-        settle({ kind: "ok" });
-      } else {
-        settle({ kind: "crashed", code, signal: sig });
-      }
+      childClosed = true;
+      pendingExit = { code, sig };
+      tryFinish();
     });
   });
 }

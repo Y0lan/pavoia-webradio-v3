@@ -89,16 +89,54 @@ describe("runTrack", () => {
     );
   });
 
-  it("drains all stderr before resolving — no race between exit and readline close", async () => {
-    // Regression: Node can emit 'exit' before readline has delivered
-    // its last stderr 'line' event. Listening on 'close' (not 'exit')
-    // is what guarantees the logger gets the final diagnostic lines.
-    // If the fix regresses, this test sometimes reports 0 lines.
+  it("delivers every stderr line when many lines are written then the child exits naturally", async () => {
+    // Regression: exercises the race between the child 'close' event
+    // and readline's buffered 'line' emission. The runner must gate
+    // resolution on BOTH events. If it resolved on 'close' alone,
+    // lines that were buffered in readline but not yet emitted as
+    // 'line' events would be lost.
+    //
+    // NOTE: process.exit() in the child SKIPS stdio flush, so we use a
+    // natural exit (letting the write callback complete) to isolate
+    // the runner's race from Node's exit-flushing behavior. The race
+    // we care about is on the PARENT (runner) side: given the data
+    // reached the pipe, did the runner wait for readline to surface
+    // it? That is what this test verifies.
+    const ac = new AbortController();
+    const lines: string[] = [];
+    const N = 200;
+    const script = `
+      let pending = ${N};
+      for (let i = 0; i < ${N}; i++) {
+        process.stderr.write('line' + i + '\\n', () => {
+          if (--pending === 0) process.exit(0);
+        });
+      }
+    `;
+    const result = await runTrack({
+      ffmpegBin: FAKE_FFMPEG,
+      argv: ["-e", script],
+      signal: ac.signal,
+      onStderrLine: (l) => lines.push(l),
+    });
+    assert.deepEqual(result, { kind: "ok" });
+    assert.equal(lines.length, N, `got ${lines.length}/${N} lines`);
+    for (let i = 0; i < N; i++) {
+      assert.equal(lines[i], `line${i}`, `line ${i} mismatch`);
+    }
+  });
+
+  it("drains all stderr before resolving — no race between child close and readline close", async () => {
+    // Regression: even after switching to 'close' (from 'exit'),
+    // readline can still have buffered 'line' events in-flight when
+    // the child's 'close' fires. The runner must also gate on
+    // readline's 'close' event before settling. Written as a tight
+    // write-then-exit sequence that uses the write callback to make
+    // sure the byte actually flushed before the child exits.
     const ac = new AbortController();
     const lines: string[] = [];
     const script = `
-      process.stderr.write("final diagnostic\\n");
-      process.exit(1);
+      process.stderr.write("final diagnostic\\n", () => process.exit(1));
     `;
     const result = await runTrack({
       ffmpegBin: FAKE_FFMPEG,
@@ -114,12 +152,15 @@ describe("runTrack", () => {
   });
 
   it("forwards stderr to onStderrLine, split on newlines", async () => {
+    // Uses a write-callback to ensure the last chunk is flushed before
+    // process.exit — otherwise process.exit can race the final write
+    // and drop bytes, masking runner correctness behind a Node-exit
+    // behavior that's unrelated to what this test is checking.
     const ac = new AbortController();
     const lines: string[] = [];
     const script = `
       process.stderr.write("line one\\n");
-      process.stderr.write("line two\\nline three\\n");
-      process.exit(0);
+      process.stderr.write("line two\\nline three\\n", () => process.exit(0));
     `;
     await runTrack({
       ffmpegBin: FAKE_FFMPEG,

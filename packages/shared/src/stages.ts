@@ -10,7 +10,7 @@
 // Plex playlist's `summary` field so you can edit them in Plex without
 // a deploy.
 
-import type { Stage } from "./types.js";
+import type { Stage } from "./types.ts";
 
 export const STAGES: Stage[] = [
   {

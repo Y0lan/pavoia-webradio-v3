@@ -99,35 +99,51 @@ export async function bootstrap(
   const registry = createStageRegistry();
 
   // For each audio stage with a Plex playlist id, fetch + spawn.
-  // Errors per stage are non-fatal: log and skip, the poller will
-  // retry on its next tick.
+  // Fetches run in PARALLEL — the Plex client's per-request timeout
+  // is 10s and v3 has 10 audio stages, so a serial bootstrap could
+  // delay HTTP bind + signal-handler install by up to ~100s on a
+  // slow/down Plex. The watchdog would see HTTP 000 and a SIGTERM
+  // mid-bootstrap couldn't reach already-spawned supervisors. Plex
+  // handles concurrent reads fine and Whatbox is local-host fast in
+  // production anyway.
+  //
+  // Per-stage failures are non-fatal: log + start with empty tracks
+  // (→ curating mode), poller retries on its next tick.
   const initialTracks = new Map<string, readonly import("@pavoia/shared").Track[]>();
   const bindings: StageBinding[] = [];
-  for (const stage of audioStages) {
-    if (stage.plexPlaylistId === null) continue;
-    const playlistId = stage.plexPlaylistId;
-    bindings.push({ stageId: stage.id, plexPlaylistId: playlistId });
-
-    let tracks: readonly import("@pavoia/shared").Track[] = [];
-    try {
-      const result = await plexClient.fetchPlaylist(playlistId);
-      tracks = result.tracks;
-      if (result.skipped > 0) {
+  const stagesToBoot = audioStages.filter(
+    (s): s is Stage & { plexPlaylistId: number } => s.plexPlaylistId !== null,
+  );
+  for (const stage of stagesToBoot) {
+    bindings.push({ stageId: stage.id, plexPlaylistId: stage.plexPlaylistId });
+  }
+  const fetched = await Promise.all(
+    stagesToBoot.map(async (stage) => {
+      try {
+        const result = await plexClient.fetchPlaylist(stage.plexPlaylistId);
+        if (result.skipped > 0) {
+          log(
+            `[engine] stage=${stage.id} initial Plex fetch: ${result.tracks.length} tracks, ${result.skipped} skipped`,
+          );
+        } else {
+          log(
+            `[engine] stage=${stage.id} initial Plex fetch: ${result.tracks.length} tracks`,
+          );
+        }
+        return { stage, tracks: result.tracks };
+      } catch (err) {
         log(
-          `[engine] stage=${stage.id} initial Plex fetch: ${tracks.length} tracks, ${result.skipped} skipped`,
+          `[engine] stage=${stage.id} initial Plex fetch FAILED — starting in curating mode (poller will retry): ${formatErr(err)}`,
         );
-      } else {
-        log(
-          `[engine] stage=${stage.id} initial Plex fetch: ${tracks.length} tracks`,
-        );
+        return {
+          stage,
+          tracks: [] as readonly import("@pavoia/shared").Track[],
+        };
       }
-    } catch (err) {
-      log(
-        `[engine] stage=${stage.id} initial Plex fetch FAILED — starting in curating mode (poller will retry): ${formatErr(err)}`,
-      );
-    }
+    }),
+  );
+  for (const { stage, tracks } of fetched) {
     initialTracks.set(stage.id, tracks);
-
     const controller = startStageImpl(
       buildStageConfig(stage, tracks, config, log),
     );

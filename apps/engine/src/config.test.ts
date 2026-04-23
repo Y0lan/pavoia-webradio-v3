@@ -122,4 +122,28 @@ describe("loadConfig — failure modes", () => {
     });
     assert.equal(r.ok, false);
   });
+
+  it("rejects PLEX_POLL_INTERVAL_MS above Node's setInterval cap (would silently clamp to 1ms)", () => {
+    const r = loadConfig({
+      ...MIN_VALID,
+      // 2^31 — one above the max int32 setInterval accepts.
+      PLEX_POLL_INTERVAL_MS: "2147483648",
+    });
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.ok(
+        r.errors.some((e) => e.includes("setInterval cap")),
+        `expected error mentioning setInterval cap; got ${r.errors.join("; ")}`,
+      );
+    }
+  });
+
+  it("accepts PLEX_POLL_INTERVAL_MS exactly at Node's setInterval cap", () => {
+    const r = loadConfig({
+      ...MIN_VALID,
+      PLEX_POLL_INTERVAL_MS: "2147483647",
+    });
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.config.plexPollIntervalMs, 2147483647);
+  });
 });

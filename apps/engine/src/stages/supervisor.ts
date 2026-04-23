@@ -213,6 +213,11 @@ export function startStage(config: StartStageConfig): StageController {
   let status: StageStatus = "starting";
   let currentTrack: Track | null = null;
   let currentTrackStartedAt: number | null = null;
+  /** ratingKey of the most recently completed track (ok exit only).
+   *  Used at pendingTracksUpdate-swap time to preserve rotation
+   *  position across Plex edits — without this, every curator edit
+   *  jumps back to index 0 of the new list, starving later tracks. */
+  let lastCompletedRatingKey: number | null = null;
   /** Set while a curating iteration's ffmpeg is in flight. setTracks
    *  aborts this so the supervisor wakes up and switches over to the
    *  new playlist immediately rather than waiting for the bounded
@@ -422,11 +427,25 @@ export function startStage(config: StartStageConfig): StageController {
       // (per SLIM_V3 §"Audio engine"). Indices into deadUntil no
       // longer correspond to the new ordering, so wipe it; a
       // previously-corrupt file may have been replaced anyway.
+      //
+      // Preserve rotation position across the swap: if the most
+      // recently completed track is still in the new list, resume
+      // from after it. Without this, every curator edit (even an
+      // append) jumps back to index 0 and starves later tracks.
       if (pendingTracksUpdate !== null) {
         tracks = pendingTracksUpdate;
         pendingTracksUpdate = null;
         deadUntil.clear();
-        i = 0;
+        if (lastCompletedRatingKey !== null && tracks.length > 0) {
+          const idx = tracks.findIndex(
+            (t) => t.plexRatingKey === lastCompletedRatingKey,
+          );
+          // Found → continue past it; not found (track was removed)
+          // OR no prior track played → start from the top.
+          i = idx >= 0 ? (idx + 1) % tracks.length : 0;
+        } else {
+          i = 0;
+        }
       }
 
       if (tracks.length === 0) {
@@ -483,6 +502,7 @@ export function startStage(config: StartStageConfig): StageController {
             currentTrack = null;
             currentTrackStartedAt = null;
           }
+          lastCompletedRatingKey = track.plexRatingKey;
           advance = true;
           break;
         }

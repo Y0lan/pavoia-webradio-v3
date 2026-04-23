@@ -162,6 +162,12 @@ function parseAbsPath(
   return s;
 }
 
+// Node's setTimeout/setInterval truncate delays > 2^31-1 ms (~24.85
+// days) to 1 ms with a TimeoutOverflowWarning — silently turning a
+// huge typo'd interval into a tight polling loop. Reject anything
+// above this ceiling explicitly so the deploy fails fast instead.
+const MAX_TIMER_MS = 2_147_483_647;
+
 function parseIntervalMs(
   raw: string | undefined,
   name: string,
@@ -179,6 +185,12 @@ function parseIntervalMs(
   if (n < 1000) {
     errors.push(
       `${name} must be at least 1000ms (1s) to avoid hammering Plex; got ${n}`,
+    );
+    return defaultMs;
+  }
+  if (n > MAX_TIMER_MS) {
+    errors.push(
+      `${name} must be ≤ ${MAX_TIMER_MS} ms (Node's setInterval cap; values above this clamp to 1 ms and become a tight loop); got ${n}`,
     );
     return defaultMs;
   }

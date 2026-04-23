@@ -1430,6 +1430,85 @@ describe("startStage — observer safety", () => {
     await ctl.stop();
   });
 
+  it("preserves rotation position across a Plex append (continues past last-played, not back to index 0)", async () => {
+    // Regression (Codex [P2]): when a Plex edit arrives, the
+    // supervisor swapped the queue and reset i=0 — so a curator
+    // adding a track to the end would cause the supervisor to
+    // replay from the BEGINNING of the new list every time, starving
+    // tracks the listener was rotating toward.
+    const runner = makeControlledRunner();
+    const t1 = makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 2, filePath: "/m/2.opus" });
+    const t3 = makeTrack({ plexRatingKey: 3, filePath: "/m/3.opus" });
+    const ctl = startStage({
+      stageId: "rotate",
+      tracks: [t1, t2],
+      hlsDir: path.join(work, "rotate"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    // Track 1 plays and finishes naturally.
+    await runner.waitForCall(1);
+    assert.ok(runner.calls[0]!.argv.includes("/m/1.opus"));
+    runner.complete({ kind: "ok" });
+
+    // Plex now appends t3 → [t1, t2, t3]. Supervisor was about to
+    // play t2 next; with the fix, after the swap it should STILL
+    // play t2, not jump back to t1.
+    ctl.setTracks([t1, t2, t3]);
+
+    await runner.waitForCall(2);
+    assert.ok(
+      runner.calls[1]!.argv.includes("/m/2.opus"),
+      `expected /m/2.opus (continuing past completed t1); got ${runner.calls[1]!.argv.find((a) => a.includes("/m/"))}`,
+    );
+
+    runner.complete({ kind: "ok" });
+    await runner.waitForCall(3);
+    assert.ok(
+      runner.calls[2]!.argv.includes("/m/3.opus"),
+      "third spawn is the newly-added t3, not a restart from t1",
+    );
+
+    await ctl.stop();
+  });
+
+  it("falls back to index 0 when the last-completed track was removed in the Plex edit", async () => {
+    const runner = makeControlledRunner();
+    const t1 = makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 2, filePath: "/m/2.opus" });
+    const tNewA = makeTrack({ plexRatingKey: 50, filePath: "/m/A.opus" });
+    const tNewB = makeTrack({ plexRatingKey: 60, filePath: "/m/B.opus" });
+    const ctl = startStage({
+      stageId: "rotate-fallback",
+      tracks: [t1, t2],
+      hlsDir: path.join(work, "rotate-fallback"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    await runner.waitForCall(1); // t1 starts
+    runner.complete({ kind: "ok" }); // t1 ends
+
+    // Plex replaces the entire playlist. t1 is no longer there.
+    ctl.setTracks([tNewA, tNewB]);
+
+    await runner.waitForCall(2);
+    assert.ok(
+      runner.calls[1]!.argv.includes("/m/A.opus"),
+      "with last-completed track gone from new list, fall back to index 0",
+    );
+
+    await ctl.stop();
+  });
+
   it("setTracks([]) at runtime sends a playing stage back to curating", async () => {
     const runner = makeControlledRunner();
     const ctl = startStage({

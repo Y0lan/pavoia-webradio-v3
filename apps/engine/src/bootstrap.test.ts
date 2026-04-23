@@ -182,6 +182,55 @@ describe("bootstrap — startup", () => {
     await result.shutdown();
   });
 
+  it("fetches initial Plex playlists in PARALLEL — bootstrap doesn't serialize on slow Plex", async () => {
+    // Regression (Codex [P2]): a serial bootstrap meant 10 audio
+    // stages × 10s Plex timeout = up to 100s before HTTP bind +
+    // signal handlers were installed. With Promise.all the worst
+    // case collapses to the SLOWEST single fetch.
+    let inflight = 0;
+    let concurrentMax = 0;
+    const slowClient: PlexClient = {
+      fetchPlaylist: async (
+        ratingKey,
+      ): Promise<FetchPlaylistResult> => {
+        inflight++;
+        if (inflight > concurrentMax) concurrentMax = inflight;
+        // Hold each fetch for a beat so the test can observe
+        // concurrency.
+        await new Promise((r) => setTimeout(r, 30));
+        inflight--;
+        return { ratingKey, tracks: [], skipped: 0 };
+      },
+    };
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+    const start = Date.now();
+
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: slowClient,
+      startStageImpl: fakeStartStage,
+      audioStages: TWO_STAGES,
+      pollerSchedule: sched.schedule,
+      log: () => {},
+    });
+
+    const elapsed = Date.now() - start;
+    assert.equal(created.length, 2);
+    assert.ok(
+      concurrentMax >= 2,
+      `expected ≥2 concurrent fetches; saw ${concurrentMax}`,
+    );
+    // Two 30 ms fetches in parallel should finish well under 50 ms.
+    // Two SERIAL fetches would take ≥60 ms.
+    assert.ok(
+      elapsed < 60,
+      `bootstrap took ${elapsed}ms — fetches likely serialized`,
+    );
+
+    await result.shutdown();
+  });
+
   it("starts a stage even when its initial Plex fetch fails (curating mode + retry on poll)", async () => {
     const plex = scriptedPlex();
     const boom: PlexApiError = Object.assign(new Error("boom") as PlexApiError, {

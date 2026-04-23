@@ -163,6 +163,23 @@ export interface StageController {
   /** Read-once snapshot of status + track + startedAt. Atomic w.r.t.
    *  the run-loop's writes. */
   snapshot(): StageSnapshot;
+  /**
+   * Queue a new track list. The current track keeps playing until
+   * its natural end (or current backoff/retry resolves) — then the
+   * supervisor swaps to the new list at the track-boundary moment.
+   * This is what makes routine Plex playlist edits inaudible to
+   * listeners, per SLIM_V3 §"Audio engine".
+   *
+   * Calling setTracks again before a previously queued list has been
+   * applied REPLACES the pending queue (most-recent intent wins —
+   * not coalesced). Empty array is valid: at the next boundary the
+   * supervisor falls into the curating loop.
+   *
+   * Side effect: clears the dead-track TTL state so the new list
+   * starts fresh — track indices no longer correspond to the old
+   * Plex order, and a previously-corrupt file may have been replaced.
+   */
+  setTracks(tracks: readonly Track[]): void;
   /** Resolves after the supervisor's run loop has exited. */
   stop(): Promise<void>;
   /** Same promise returned from stop(); also resolves on a fatal error. */
@@ -187,12 +204,25 @@ export function startStage(config: StartStageConfig): StageController {
     preflightImpl = preflightTrack,
     sleep = defaultSleep,
   } = config;
-  const tracks: readonly Track[] = [...config.tracks];
+  // Mutable now (was readonly snapshot). The current track list is
+  // swapped at the next track boundary by applying pendingTracksUpdate.
+  let tracks: readonly Track[] = [...config.tracks];
+  let pendingTracksUpdate: readonly Track[] | null = null;
 
   const ac = new AbortController();
   let status: StageStatus = "starting";
   let currentTrack: Track | null = null;
   let currentTrackStartedAt: number | null = null;
+  /** ratingKey of the most recently completed track (ok exit only).
+   *  Used at pendingTracksUpdate-swap time to preserve rotation
+   *  position across Plex edits — without this, every curator edit
+   *  jumps back to index 0 of the new list, starving later tracks. */
+  let lastCompletedRatingKey: number | null = null;
+  /** Set while a curating iteration's ffmpeg is in flight. setTracks
+   *  aborts this so the supervisor wakes up and switches over to the
+   *  new playlist immediately rather than waiting for the bounded
+   *  curating timeout. Always null while playing a real track. */
+  let activeCuratingAc: AbortController | null = null;
 
   const emit = (ev: StageEvent): void => {
     try {
@@ -388,35 +418,54 @@ export function startStage(config: StartStageConfig): StageController {
 
     if (ac.signal.aborted) return;
 
-    if (tracks.length === 0) {
-      await runCuratingLoop();
-      return;
-    }
-
     const deadUntil: DeadUntil = new Map();
     let i = 0;
     while (!ac.signal.aborted) {
+      // Apply a pending track-list update at this safe boundary —
+      // between tracks, before we pick the next one. This is what
+      // makes routine Plex playlist edits inaudible to listeners
+      // (per SLIM_V3 §"Audio engine"). Indices into deadUntil no
+      // longer correspond to the new ordering, so wipe it; a
+      // previously-corrupt file may have been replaced anyway.
+      //
+      // Preserve rotation position across the swap: if the most
+      // recently completed track is still in the new list, resume
+      // from after it. Without this, every curator edit (even an
+      // append) jumps back to index 0 and starves later tracks.
+      if (pendingTracksUpdate !== null) {
+        tracks = pendingTracksUpdate;
+        pendingTracksUpdate = null;
+        deadUntil.clear();
+        if (lastCompletedRatingKey !== null && tracks.length > 0) {
+          const idx = tracks.findIndex(
+            (t) => t.plexRatingKey === lastCompletedRatingKey,
+          );
+          // Found → continue past it; not found (track was removed)
+          // OR no prior track played → start from the top.
+          i = idx >= 0 ? (idx + 1) % tracks.length : 0;
+        } else {
+          i = 0;
+        }
+      }
+
+      if (tracks.length === 0) {
+        // No real tracks → curating until either the stage is
+        // aborted, the fallback fails, or setTracks wakes us.
+        currentTrack = null;
+        const result = await runCuratingLoop();
+        if (result === "aborted" || result === "failed") return;
+        continue; // "wakeup" — re-check pendingTracksUpdate
+      }
+
       if (countDead(deadUntil) >= tracks.length) {
-        // Every track is in the TTL'd dead set. Find the earliest
-        // expiry, run the curating fallback bounded by that deadline,
-        // and loop back — the track may be eligible again by then
-        // (Plex rescan / admin repair). This is what makes the TTL
-        // actually mean something: without the bounded curating run,
-        // `-stream_loop -1` would run forever and no track would be
-        // retried until the process restarts.
+        // Every real track is TTL'd dead. Bounded curating until
+        // the earliest expiry, then loop back to retry a track.
+        // setTracks can also wake us early.
         const untils = Array.from(deadUntil.values());
         const earliest = untils.length > 0 ? Math.min(...untils) : undefined;
         currentTrack = null;
         const result = await runCuratingLoop(earliest);
-        if (result === "aborted" || result === "failed") {
-          // "aborted" — stage-wide stop. "failed" — fallback itself is
-          // unusable, so re-entering the all-dead branch would just
-          // hot-loop stat/spawn/log until the TTL expires (~10 min by
-          // default). Stop the stage cleanly instead.
-          return;
-        }
-        // "deadline" — earliest TTL has elapsed; loop so we can
-        // re-evaluate countDead and maybe retry a real track.
+        if (result === "aborted" || result === "failed") return;
         continue;
       }
       while (isDead(deadUntil, i)) i = (i + 1) % tracks.length;
@@ -453,6 +502,7 @@ export function startStage(config: StartStageConfig): StageController {
             currentTrack = null;
             currentTrackStartedAt = null;
           }
+          lastCompletedRatingKey = track.plexRatingKey;
           advance = true;
           break;
         }
@@ -502,13 +552,16 @@ export function startStage(config: StartStageConfig): StageController {
    * When `until` is provided, the loop returns at or before that wall
    * time so the outer track loop can re-check whether any dead track
    * has become retryable. When `until` is omitted (empty-playlist
-   * case), the loop runs until the stage is aborted.
+   * case), the loop runs until the stage is aborted OR setTracks
+   * queues a new playlist (which aborts the in-flight ffmpeg via
+   * activeCuratingAc so the supervisor wakes up promptly).
    *
    * Return value tells the caller what happened so it can decide
    * whether to re-enter the track loop or give up:
    *   - "aborted" — stage-wide stop; caller should return.
-   *   - "deadline" — the `until` deadline hit; caller should re-check
-   *     deadUntil (some tracks may now be eligible).
+   *   - "wakeup" — either the `until` deadline hit or setTracks
+   *     queued a new list. Caller should re-check pendingTracksUpdate
+   *     + deadUntil.
    *   - "failed" — fallback is unusable (preflight invalid, or it hit
    *     the consecutive-crash cap). Caller should give up on the
    *     stage entirely; re-entering all-dead → curating would just
@@ -516,7 +569,7 @@ export function startStage(config: StartStageConfig): StageController {
    */
   async function runCuratingLoop(
     until?: number,
-  ): Promise<"aborted" | "deadline" | "failed"> {
+  ): Promise<"aborted" | "wakeup" | "failed"> {
     // Validate the fallback file once up front. A broken fallback is
     // fatal — nothing we can play, don't hot-loop -stream_loop -1.
     const pre = await preflightImpl(fallbackFile);
@@ -531,19 +584,24 @@ export function startStage(config: StartStageConfig): StageController {
 
     let consecutiveCrashes = 0;
     while (!ac.signal.aborted) {
-      if (until !== undefined && Date.now() >= until) return "deadline";
+      if (until !== undefined && Date.now() >= until) return "wakeup";
+      // setTracks may have queued a new playlist while we were here —
+      // wake up so the outer loop can switch to it.
+      if (pendingTracksUpdate !== null) return "wakeup";
 
       const startedAt = Date.now();
       emit({ type: "curating_started", startedAt });
       setStatus("curating");
 
-      // Per-iteration controller so the deadline timer can end JUST
-      // this curating run without killing the whole stage. Stage
-      // abort also aborts it; the runner translates either into
-      // SIGTERM on ffmpeg.
+      // Per-iteration controller so the deadline timer (or setTracks)
+      // can end JUST this curating run without killing the whole
+      // stage. Stage abort also aborts it; the runner translates
+      // either into SIGTERM on ffmpeg.
       const curAc = new AbortController();
       const linkStage = () => curAc.abort();
       ac.signal.addEventListener("abort", linkStage, { once: true });
+      // Expose to setTracks so it can wake us up promptly.
+      activeCuratingAc = curAc;
 
       let deadlineHit = false;
       let deadlineTimer: NodeJS.Timeout | undefined;
@@ -575,11 +633,16 @@ export function startStage(config: StartStageConfig): StageController {
       });
       ac.signal.removeEventListener("abort", linkStage);
       if (deadlineTimer) clearTimeout(deadlineTimer);
+      activeCuratingAc = null;
 
       emit({ type: "curating_ended", exit });
 
-      if (deadlineHit) return "deadline"; // re-enter track loop
+      if (deadlineHit) return "wakeup"; // re-enter track loop
       if (ac.signal.aborted) return "aborted";
+      // setTracks woke us — pendingTracksUpdate is set, return so the
+      // outer loop applies it. Distinguishable from a stage abort
+      // because ac.signal.aborted is false.
+      if (pendingTracksUpdate !== null) return "wakeup";
 
       if (exit.kind === "aborted") return "aborted";
 
@@ -645,6 +708,17 @@ export function startStage(config: StartStageConfig): StageController {
     return stopPromise;
   }
 
+  function setTracks(newTracks: readonly Track[]): void {
+    pendingTracksUpdate = [...newTracks]; // defensive copy, like at start
+    // If we're currently in a curating run, abort it so the outer
+    // loop wakes up and switches to the new playlist immediately.
+    // Track-loop iterations apply the update at the natural next
+    // boundary — no abort needed there.
+    if (activeCuratingAc) {
+      activeCuratingAc.abort();
+    }
+  }
+
   return {
     stageId,
     status: () => status,
@@ -664,6 +738,7 @@ export function startStage(config: StartStageConfig): StageController {
         trackStartedAt: audible ? currentTrackStartedAt : null,
       };
     },
+    setTracks,
     stop,
     done: loop,
   };

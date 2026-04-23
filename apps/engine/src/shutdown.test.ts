@@ -54,7 +54,14 @@ function spawnEngine(port: number): SpawnedEngine {
     process.execPath,
     ["--experimental-strip-types", "--disable-warning=ExperimentalWarning", ENTRY],
     {
-      env: { ...process.env, ENGINE_PORT: String(port) },
+      // ENGINE_DISABLE_STAGES isolates these tests to the HTTP +
+      // signal-handling surface — bootstrap (Plex client + ffmpeg
+      // supervisors) is exercised by bootstrap.test.ts with mocks.
+      env: {
+        ...process.env,
+        ENGINE_PORT: String(port),
+        ENGINE_DISABLE_STAGES: "true",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -119,7 +126,7 @@ describe("graceful shutdown (integration)", () => {
       assert.equal(signal, null);
 
       const log = engine.stdout.join("");
-      assert.match(log, /received SIGTERM, closing server/);
+      assert.match(log, /received SIGTERM, stopping stages \+ server/);
       assert.match(log, /shutdown complete/);
     } finally {
       if (engine.child.exitCode === null && !engine.child.killed) {
@@ -168,7 +175,7 @@ describe("graceful shutdown (integration)", () => {
       const { code } = await engine.done;
       assert.equal(code, 0);
       const log = engine.stdout.join("");
-      const matches = log.match(/received SIGTERM, closing server/g) ?? [];
+      const matches = log.match(/received SIGTERM, stopping stages \+ server/g) ?? [];
       assert.equal(matches.length, 1, "shutdown() should run exactly once");
     } finally {
       if (engine.child.exitCode === null && !engine.child.killed) {

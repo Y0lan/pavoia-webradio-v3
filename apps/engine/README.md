@@ -6,7 +6,7 @@ See `../../docs/SLIM_V3.md` for the full feature scope, `../../docs/WEEK0_LOG.md
 
 ## Status
 
-**Week 1 Tasks 1–3 — complete.** The engine bootstraps the HTTP server and graceful shutdown (Task 1), has a Plex playlist client with validation + pagination (Task 2), and ships a per-stage ffmpeg supervisor with lifecycle, crash restart, and fallback looping (Task 3). What's not yet wired: `/api/stages*` endpoints, the `/hls/*` static handler, the WebSocket hub, and `deploy/bin/*` scripts — those land in Tasks 4–7.
+**Week 1 Tasks 1–5 — complete except `/hls/*`.** The engine bootstraps the HTTP server (Task 1), has a Plex playlist client with validation + pagination (Task 2), runs a per-stage ffmpeg supervisor with crash restart, fallback, preflight, TTL'd dead tracks, and a first-segment watchdog (Task 3 + hardening), is verified click-free end-to-end against real ffmpeg (Task 4), and now exposes `GET /api/stages` + `GET /api/stages/:id/now`, a Plex client + N supervisors at startup, and a 60 s polling loop that swaps a stage's tracks when Plex changes (Task 5). What's missing: the `/hls/*` static file handler, the WebSocket hub, and `deploy/bin/*` scripts.
 
 ## Scripts
 
@@ -22,11 +22,21 @@ Typecheck runs from the repo root: `npm run typecheck` — which invokes `tsc --
 
 ## Environment variables
 
+Validated by `loadConfig` in `src/config.ts`. Every error is collected in one pass so a misconfigured deploy fails fast with the full punch list.
+
 | Var | Default | Notes |
 |---|---|---|
-| `ENGINE_PORT` | `3001` | Must match `/^[1-9]\d{0,4}$/` and be `≤ 65535`. Rejects scientific (`1e3`), hex (`0x7D9`), octal (`0o5731`), binary (`0b…`), signed (`+3001`, `-3001`), leading-zero (`03001`), numeric-separator (`1_000`), non-ASCII digits (`٣٠٠١`, `３００１`), whitespace-wrapped values (`" 3001"`), floats, `NaN`, `Infinity` and empty/whitespace-only strings. Bad values throw before the server binds so the watchdog sees a dead process (HTTP 000) and respawns. |
+| `ENGINE_PORT` | `3001` | Must match `/^[1-9]\d{0,4}$/` and be `≤ 65535`. Rejects scientific (`1e3`), hex (`0x7D9`), octal (`0o5731`), binary (`0b…`), signed (`+3001`, `-3001`), leading-zero (`03001`), numeric-separator (`1_000`), non-ASCII digits (`٣٠٠١`, `３００１`), whitespace-wrapped values (`" 3001"`), floats, `NaN`, `Infinity` and empty/whitespace-only strings. Bad values exit 1 before bind so the watchdog sees HTTP 000 and respawns. |
+| `PLEX_BASE_URL` | — *(required)* | `http://` or `https://`, e.g. `http://127.0.0.1:31711`. Trailing slashes stripped. |
+| `PLEX_TOKEN` | — *(required)* | Plex auth token (`X-Plex-Token`). Sent as header, never logged. |
+| `PLEX_LIBRARY_ROOT` | — *(required)* | Absolute path. Plex client rejects any track whose `Part.file` resolves outside this dir (Req D). |
+| `HLS_ROOT` | — *(required)* | Absolute path; per-stage HLS lands at `<HLS_ROOT>/<stageId>/`. Whatbox prod: `/dev/shm/1008/radio-hls`. |
+| `FALLBACK_FILE` | — *(required)* | Absolute path to the curating loop file. Preflighted at supervisor start; broken fallback exits the stage cleanly. |
+| `FFMPEG_BIN` | `ffmpeg` | Absolute path or bare name on PATH. |
+| `PLEX_POLL_INTERVAL_MS` | `60000` | How often the poller refreshes each stage's playlist. Min 1000 (rejects sub-1s to avoid hammering Plex). |
+| `ENGINE_DISABLE_STAGES` | unset | Set to `true` to boot in HTTP-only mode: skips Plex client + supervisors entirely, `/api/stages/:id/now` returns 503. Useful for canary deploys and shutdown integration tests. |
 
-Plex token, library paths, and Last.fm keys live in `~/.config/radio/env` on Whatbox (sourced by the wrapper scripts per WEEK0_LOG.md Req G) and are **not** read in Task 1.
+Whatbox sources these from `~/.config/radio/env` via the deploy wrapper scripts (Req G).
 
 ## HTTP contract
 
@@ -47,6 +57,39 @@ Always `200 OK` while the process is alive. Returns:
 ```
 
 `plexReachable` and `stages` are placeholder-shaped and will be filled by Task 2 (Plex client) and Task 3 (stage supervisor). The watchdog (`deploy/bin/watchdog.sh`, Req J) only cares that the endpoint returns any 2xx — **it does not parse the body**. Restart trigger is three consecutive `HTTP 000` responses.
+
+### `GET /api/stages`
+
+The static catalog of all 11 stages from `@pavoia/shared`, ordered for the UI sidebar:
+
+```json
+{ "stages": [ { "id": "opening", "order": 1, "plexPlaylistId": 162337, "icon": "🌄", "fallbackTitle": "Opening", "...": "..." }, ... ] }
+```
+
+### `GET /api/stages/:id/now`
+
+Live now-playing for a single stage:
+
+```json
+{
+  "stageId": "opening",
+  "status": "playing",
+  "track": { "plexRatingKey": 12345, "title": "...", "artist": "...", "...": "..." },
+  "startedAt": 1761225600000,
+  "streamUrl": "/hls/opening/index.m3u8"
+}
+```
+
+Status codes:
+
+| Code | When |
+|---|---|
+| `200` | Known stage with a registered controller. `track` and `startedAt` are `null` while `status` is `curating`, `starting`, `stopping`, or `stopped`. |
+| `404` | `stage_not_found` — id not in the static catalog. |
+| `410` | `stage_has_no_audio` — the `bus` mystery stage by design. |
+| `503` | `registry_unavailable` (engine in HTTP-only mode) or `stage_not_running` (no controller registered yet — bootstrap may still be coming up). |
+
+The `Track` is projected via `toPublicTrack` so the engine-internal `filePath` cannot leak.
 
 ### `404 Not Found`
 
@@ -79,10 +122,14 @@ This matches the Whatbox deploy pattern in WEEK0_LOG.md Step 2 — `@reboot` cro
 
 ```text
 src/
-├── app.ts                         # createApp(), resolvePort() — pure, no side effects on import
-├── app.test.ts                    # unit tests for resolvePort and the HTTP contract
+├── app.ts                         # createApp({ registry? }), resolvePort() — pure, no side effects on import
+├── app.test.ts                    # unit tests for HTTP contract + /api/stages + /api/stages/:id/now
+├── config.ts                      # loadConfig(env) → EngineConfig | { errors[] } — boot validation
+├── config.test.ts
+├── bootstrap.ts                   # bootstrap(input) → { app, registry, poller, shutdown }
+├── bootstrap.test.ts              # mock-driven coverage of the full wiring flow
 ├── shutdown.test.ts               # integration: spawn index.ts, send signals, assert exit codes
-├── index.ts                       # entry point: resolves port, creates app, serves, wires signals
+├── index.ts                       # entry point: loadConfig → bootstrap → serve → signals
 ├── plex/
 │   ├── client.ts                  # createPlexClient() → fetchPlaylist(ratingKey): FetchPlaylistResult
 │   ├── client.test.ts             # covers the full error taxonomy + pagination
@@ -103,6 +150,10 @@ src/
     ├── watchers.test.ts
     ├── supervisor.ts              # startStage() — sequential track loop, crash restart, stop()
     ├── supervisor.test.ts         # controlled-runner mock drives the full state machine
+    ├── registry.ts                # createStageRegistry() — Map<stageId, StageController>
+    ├── registry.test.ts
+    ├── poller.ts                  # startPlexPoller() — 60 s loop, set-diff, restart-on-change
+    ├── poller.test.ts
     ├── integration.test.ts        # end-to-end against real ffmpeg (auto-skips if absent)
     ├── audio-integrity.test.ts    # decode HLS back to PCM, assert click-free + silence floor
     └── index.ts                   # public surface for the engine entry point
@@ -159,7 +210,6 @@ await ctl.stop();  // SIGTERM current ffmpeg, SIGKILL after 5s if stubborn
 
 Coming in later Week 1 tasks:
 
-- **Task 4** — verify HLS in a real browser (hls.js) + VLC.
-- **Task 5** — `/api/stages`, `/api/stages/:id/now`, `/hls/*` static handler; wire stage supervisors into `index.ts` with the 60 s Plex-polling loop.
+- **Task 5 final slice** — `/hls/*` static file handler over `HLS_ROOT` (path-traversal guard required) + WebSocket hub for `track_changed` events.
 - **Task 6** — `deploy/bin/start-engine.sh`, cron entries, watchdog port from v2.
 - **Task 7** — ship to `v3.nicemouth.box.ca`.

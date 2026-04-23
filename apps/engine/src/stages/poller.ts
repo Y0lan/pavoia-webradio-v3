@@ -126,6 +126,14 @@ export function startPlexPoller(input: PollerInput): PollerController {
 
   const cancel = schedule(() => {
     if (stopped) return;
+    // Skip the tick if one is already in flight. setInterval doesn't
+    // wait for async callbacks; a slow Plex response (our 10s default
+    // timeout >> user's 1s minimum intervalMs) would otherwise start
+    // overlapping fetches that race on lastKnown — an older response
+    // could commit AFTER a newer one and revert a stage to a stale
+    // list. Also preserves the invariant that stop() awaits THE ONE
+    // in-flight promise.
+    if (tickInFlight) return;
     tickInFlight = tick().finally(() => {
       tickInFlight = null;
     });

@@ -13,7 +13,12 @@ import { createApp, resolvePort } from "./app.ts";
 import { bootstrap } from "./bootstrap.ts";
 import { loadConfig } from "./config.ts";
 
-const SHUTDOWN_TIMEOUT_MS = 5000;
+// Shutdown budget: the subsystem cleanup can legitimately take up to
+//   - 5s   per-supervisor ffmpeg SIGTERM → SIGKILL (killTimeoutMs)
+//   - 10s  per in-flight Plex fetch (client timeoutMs default)
+// plus Hono's in-flight request drain. 15s is a generous ceiling that
+// lets a clean shutdown finish while still bounding the worst case.
+const SHUTDOWN_TIMEOUT_MS = 15_000;
 
 // Escape hatch: skip the per-stage Plex+ffmpeg bootstrap and run the
 // engine with only the static HTTP surface (/api/health, /api/stages

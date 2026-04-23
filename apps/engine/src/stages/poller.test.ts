@@ -310,6 +310,54 @@ describe("startPlexPoller", () => {
     await ctl.stop();
   });
 
+  it("skips a scheduled tick when a previous tick is still in flight (no overlap)", async () => {
+    // Regression (Codex [P2]): setInterval doesn't wait for async
+    // callbacks. If a Plex fetch takes longer than intervalMs, a
+    // second tick would start and overlap the first — the slower
+    // response could commit after the faster one and revert a stage
+    // to a stale track list. Fix: the scheduler callback returns
+    // immediately when tickInFlight is set.
+    const plex = scriptedPlex();
+    const sched = manualSchedule();
+    let inflight = 0;
+    let concurrentMax = 0;
+    const slowClient: PlexClient = {
+      fetchPlaylist: async (
+        ratingKey,
+      ): Promise<FetchPlaylistResult> => {
+        inflight++;
+        if (inflight > concurrentMax) concurrentMax = inflight;
+        await new Promise((r) => setTimeout(r, 40));
+        inflight--;
+        void plex; // eslint satisfier
+        return { ratingKey, tracks: [], skipped: 0 };
+      },
+    };
+
+    const ctl = startPlexPoller({
+      plexClient: slowClient,
+      bindings: [{ stageId: "opening", plexPlaylistId: 100 }],
+      intervalMs: 1, // absurdly fast schedule to expose overlap
+      initialTracks: new Map(),
+      onTracksChanged: () => {},
+      schedule: sched.schedule,
+    });
+
+    // Fire the schedule callback twice in quick succession. Without
+    // the guard, the second would start a parallel fetch.
+    sched.tick(); // returns once setImmediate drains, but the fetch
+                  // is still pending (40 ms mock delay)
+    sched.tick(); // should be a no-op
+    await new Promise((r) => setTimeout(r, 80)); // let the slow fetch finish
+
+    assert.equal(
+      concurrentMax,
+      1,
+      `expected ≤1 concurrent tick; saw ${concurrentMax}`,
+    );
+    await ctl.stop();
+  });
+
   it("stop() cancels the schedule and waits for an in-flight tick", async () => {
     const plex = scriptedPlex();
     const sched = manualSchedule();

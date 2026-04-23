@@ -322,6 +322,54 @@ describe("bootstrap — Plex polling queues track updates", () => {
     await result.shutdown();
   });
 
+  it("starts a fresh supervisor when the existing controller is already stopped (not just missing)", async () => {
+    // Regression (Codex [P2]): a controller that reached "stopped"
+    // (fallback preflight failure, crash cap, fatal error) stays in
+    // the registry but its run loop has exited. setTracks() on that
+    // corpse is a no-op. Without this fix, a broken stage would stay
+    // dead until the engine restarted. With it, a later poll with
+    // good tracks resurrects the stage.
+    const plex = scriptedPlex();
+    plex.setNext(100, [makeTrack(1)]);
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: [fakeStage("opening", 100)],
+      pollerSchedule: sched.schedule,
+      log: () => {},
+    });
+
+    // Simulate the original controller having reached a terminal
+    // state (crash cap with broken fallback).
+    created[0]!.stopped = true;
+
+    // Plex now has a fresh list.
+    plex.setNext(100, [makeTrack(42)]);
+    await sched.tick();
+
+    // A SECOND supervisor was created, not a no-op setTracks on the
+    // dead first one.
+    assert.equal(created.length, 2);
+    assert.equal(
+      created[1]!.stageId,
+      "opening",
+      "fresh supervisor is registered for the same stage",
+    );
+    assert.deepEqual(
+      created[1]!.config.tracks.map((t) => t.plexRatingKey),
+      [42],
+    );
+    // And the stopped first one had no setTracks call (would have
+    // been a no-op anyway).
+    assert.equal(created[0]!.setTracksCalls.length, 0);
+
+    await result.shutdown();
+  });
+
   it("starts a fresh supervisor when no controller is registered for the stage", async () => {
     // This branch fires when a stage was unregistered externally — not
     // the normal bootstrap path (where every audio stage gets a

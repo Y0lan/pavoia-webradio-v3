@@ -149,7 +149,12 @@ export async function bootstrap(
         );
         return;
       }
-      if (prev) {
+      // A controller that has reached "stopped" (fallback preflight
+      // failure + crash cap + etc.) is already a dead ringer —
+      // setTracks() on it would land in a run loop that has already
+      // returned. Treat stopped same as missing so Plex updates can
+      // bring a stage back to life without a full engine restart.
+      if (prev && prev.status() !== "stopped") {
         // The existing supervisor stays alive — setTracks queues the
         // new list so the change applies at the next natural track
         // boundary (per SLIM_V3 §"Audio engine"). Listeners hear the
@@ -159,16 +164,19 @@ export async function bootstrap(
         );
         prev.setTracks(tracks);
       } else {
-        // No supervisor running yet for this stage (e.g. the initial
-        // Plex fetch at startup failed and we never registered one).
-        // Start a fresh one now.
-        log(
-          `[engine] stage=${stageId} Plex tracks available (${tracks.length}) — starting supervisor`,
-        );
+        if (prev) {
+          log(
+            `[engine] stage=${stageId} previous controller was stopped — starting a fresh supervisor with ${tracks.length} tracks`,
+          );
+        } else {
+          log(
+            `[engine] stage=${stageId} Plex tracks available (${tracks.length}) — starting supervisor`,
+          );
+        }
         const next = startStageImpl(
           buildStageConfig(stage, tracks, config, log),
         );
-        registry.register(next);
+        registry.register(next); // registry.register replaces any existing entry
       }
     },
     onError: (stageId, err) => {

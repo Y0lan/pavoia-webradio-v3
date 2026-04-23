@@ -19,6 +19,7 @@ function makeFakeController(
     status: () => status,
     currentTrack: () => null,
     snapshot: () => ({ ...snapshot, status }),
+    setTracks: () => {},
     stop: async () => {
       if (opts.stopBehavior === "throw") {
         throw new Error("stop intentionally failed");

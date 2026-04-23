@@ -3,13 +3,18 @@
 // Every `intervalMs` (default 60s per SLIM_V3 §"Audio engine"):
 //   1. For each binding (stageId + plexPlaylistId), call
 //      plexClient.fetchPlaylist().
-//   2. Compare the new track set to the last known set BY ratingKey.
-//   3. If the SET changed (additions/removals), call onTracksChanged
-//      so the bootstrap layer can stop the old supervisor and start a
-//      new one with the fresh tracks.
-//   4. If only ORDER changed, do nothing — restarts are jarring and
-//      the next track will play in the new order anyway.
-//   5. Plex errors per stage go to onError but do not stop the poller.
+//   2. Compare the new track LIST (ordered) to the last known list.
+//   3. If anything changed — additions, removals, OR reorders — call
+//      onTracksChanged. The bootstrap layer routes that to the
+//      supervisor's setTracks(), which queues the new list and applies
+//      it at the next track boundary. Reorders matter: the curator's
+//      intent for play order should be preserved, not silently
+//      ignored.
+//   4. Plex errors per stage go to onError but do not stop the poller.
+//   5. lastKnown is updated only AFTER onTracksChanged resolves
+//      successfully — so a transient supervisor-restart failure makes
+//      the NEXT tick see the same diff and retry, rather than getting
+//      stuck on an outdated track list forever.
 //
 // The poller does NOT know about supervisors / registries / startStage
 // — that coupling lives in bootstrap. Keeps this module pure and
@@ -63,11 +68,13 @@ export function startPlexPoller(input: PollerInput): PollerController {
     schedule = defaultSchedule,
   } = input;
 
-  // Last-known ratingKey set per stage. Mutable across ticks.
-  const lastKnown = new Map<string, ReadonlySet<number>>();
+  // Last-known ratingKey LIST (ordered) per stage. Mutable across
+  // ticks. We compare lists, not sets, so curator reorders are
+  // detected and forwarded to the supervisor.
+  const lastKnown = new Map<string, readonly number[]>();
   for (const b of bindings) {
     const seed = initialTracks.get(b.stageId) ?? [];
-    lastKnown.set(b.stageId, ratingKeySet(seed));
+    lastKnown.set(b.stageId, ratingKeyList(seed));
   }
 
   let stopped = false;
@@ -98,17 +105,22 @@ export function startPlexPoller(input: PollerInput): PollerController {
       return;
     }
 
-    const next = ratingKeySet(result.tracks);
-    const prev = lastKnown.get(b.stageId) ?? new Set<number>();
-    if (setsEqual(prev, next)) return;
+    const next = ratingKeyList(result.tracks);
+    const prev = lastKnown.get(b.stageId) ?? [];
+    if (listsEqual(prev, next)) return;
 
-    lastKnown.set(b.stageId, next);
     try {
       await onTracksChanged(b.stageId, result.tracks);
+      // Only commit lastKnown AFTER the callback succeeds. If
+      // setTracks/restart failed (transient ffmpeg-spawn issue,
+      // supervisor mid-shutdown, etc.), leaving lastKnown unchanged
+      // means the NEXT tick sees the same diff and retries. Without
+      // this ordering, a single failed update would strand the stage
+      // on its previous queue until the process restarts.
+      lastKnown.set(b.stageId, next);
     } catch {
-      // onTracksChanged failures (e.g. supervisor restart hiccup)
-      // mustn't kill the poller — next tick will detect the same
-      // diff again and try once more.
+      // onTracksChanged failures don't kill the poller — the diff
+      // remains uncommitted and the next tick will retry.
     }
   };
 
@@ -132,19 +144,14 @@ export function startPlexPoller(input: PollerInput): PollerController {
   };
 }
 
-function ratingKeySet(tracks: readonly Track[]): ReadonlySet<number> {
-  const s = new Set<number>();
-  for (const t of tracks) s.add(t.plexRatingKey);
-  return s;
+function ratingKeyList(tracks: readonly Track[]): readonly number[] {
+  return tracks.map((t) => t.plexRatingKey);
 }
 
-function setsEqual<T>(
-  a: ReadonlySet<T>,
-  b: ReadonlySet<T>,
-): boolean {
-  if (a.size !== b.size) return false;
-  for (const v of a) {
-    if (!b.has(v)) return false;
+function listsEqual<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
   }
   return true;
 }

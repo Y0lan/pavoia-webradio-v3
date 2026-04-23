@@ -146,13 +146,13 @@ describe("startPlexPoller", () => {
     await ctl.stop();
   });
 
-  it("does NOT fire onTracksChanged when only the order changed", async () => {
+  it("DOES fire onTracksChanged when only the order changed (preserves curator intent)", async () => {
     const plex = scriptedPlex();
     const sched = manualSchedule();
     plex.setNext(100, [makeTrack(2), makeTrack(1)]); // reordered
     plex.setNext(200, [makeTrack(10)]);
 
-    const seen: string[] = [];
+    const seen: Array<[string, number[]]> = [];
     const ctl = startPlexPoller({
       plexClient: plex.client,
       bindings: BINDINGS,
@@ -161,17 +161,51 @@ describe("startPlexPoller", () => {
         ["opening", [makeTrack(1), makeTrack(2)]],
         ["closing", [makeTrack(10)]],
       ]),
-      onTracksChanged: (id) => {
-        seen.push(id);
+      onTracksChanged: (id, tracks) => {
+        seen.push([id, tracks.map((t) => t.plexRatingKey)]);
       },
       schedule: sched.schedule,
     });
 
     await sched.tick();
-    assert.deepEqual(
-      seen,
-      [],
-      "reordering must not trigger restart (would interrupt current track)",
+    // The supervisor's setTracks queues the new ORDER for the next
+    // track boundary — no playback interruption. Without this, the
+    // curator's reorder would be silently dropped until a separate
+    // add/remove event came along.
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0]![0], "opening");
+    assert.deepEqual(seen[0]![1], [2, 1]);
+    await ctl.stop();
+  });
+
+  it("retries the diff on the next tick when onTracksChanged threw", async () => {
+    const plex = scriptedPlex();
+    const sched = manualSchedule();
+    // Both ticks see the same diff (Plex hasn't changed since the
+    // miss). The poller should still call onTracksChanged on tick 2
+    // because lastKnown wasn't committed when tick 1 threw.
+    plex.setNext(100, [makeTrack(1), makeTrack(2), makeTrack(3)]);
+
+    let callCount = 0;
+    const ctl = startPlexPoller({
+      plexClient: plex.client,
+      bindings: [{ stageId: "opening", plexPlaylistId: 100 }],
+      intervalMs: 1000,
+      initialTracks: new Map([["opening", [makeTrack(1), makeTrack(2)]]]),
+      onTracksChanged: () => {
+        callCount++;
+        if (callCount === 1) throw new Error("transient supervisor failure");
+      },
+      schedule: sched.schedule,
+    });
+
+    await sched.tick(); // tick 1: throws, lastKnown NOT advanced
+    plex.setNext(100, [makeTrack(1), makeTrack(2), makeTrack(3)]);
+    await sched.tick(); // tick 2: same diff, retried, succeeds
+    assert.equal(
+      callCount,
+      2,
+      "must retry the failed update — leaving lastKnown stale would strand the stage",
     );
     await ctl.stop();
   });

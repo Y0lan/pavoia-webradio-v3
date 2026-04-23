@@ -149,12 +149,27 @@ export async function bootstrap(
         );
         return;
       }
-      log(
-        `[engine] stage=${stageId} Plex tracks changed (${tracks.length} now) — restarting supervisor`,
-      );
-      if (prev) await prev.stop();
-      const next = startStageImpl(buildStageConfig(stage, tracks, config, log));
-      registry.register(next);
+      if (prev) {
+        // The existing supervisor stays alive — setTracks queues the
+        // new list so the change applies at the next natural track
+        // boundary (per SLIM_V3 §"Audio engine"). Listeners hear the
+        // current track to completion, then the new queue.
+        log(
+          `[engine] stage=${stageId} Plex tracks changed (${tracks.length} now) — queued for next track boundary`,
+        );
+        prev.setTracks(tracks);
+      } else {
+        // No supervisor running yet for this stage (e.g. the initial
+        // Plex fetch at startup failed and we never registered one).
+        // Start a fresh one now.
+        log(
+          `[engine] stage=${stageId} Plex tracks available (${tracks.length}) — starting supervisor`,
+        );
+        const next = startStageImpl(
+          buildStageConfig(stage, tracks, config, log),
+        );
+        registry.register(next);
+      }
     },
     onError: (stageId, err) => {
       log(`[engine] stage=${stageId} Plex poll error: ${formatPlexErr(err)}`);

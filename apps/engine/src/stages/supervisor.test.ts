@@ -1341,6 +1341,121 @@ describe("startStage — observer safety", () => {
     assert.equal(snap.trackStartedAt, null);
   });
 
+  it("setTracks queues the new playlist for the NEXT track boundary (no current-track interruption)", async () => {
+    // Codex [P1]: routine Plex edits must not interrupt the current
+    // track. setTracks queues; the supervisor swaps at the next
+    // natural boundary.
+    const runner = makeControlledRunner();
+    const t1 = makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 2, filePath: "/m/2.opus" });
+    const tNew = makeTrack({ plexRatingKey: 99, filePath: "/m/new.opus" });
+    const ctl = startStage({
+      stageId: "queue",
+      tracks: [t1, t2],
+      hlsDir: path.join(work, "queue"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    // Track 1 starts.
+    await runner.waitForCall(1);
+    assert.ok(runner.calls[0]!.argv.includes("/m/1.opus"));
+
+    // Curator updates Plex while track 1 is playing — supervisor
+    // queues the new list, does NOT abort the runner.
+    ctl.setTracks([tNew]);
+    assert.equal(
+      runner.calls.length,
+      1,
+      "no extra spawn — current track plays to completion",
+    );
+    assert.equal(
+      runner.inflight(),
+      1,
+      "the original runner is still in-flight",
+    );
+
+    // Complete track 1's natural end. Supervisor advances and
+    // applies the queued list.
+    runner.complete({ kind: "ok" });
+    await runner.waitForCall(2);
+    assert.ok(
+      runner.calls[1]!.argv.includes("/m/new.opus"),
+      "next spawn pulls from the queued setTracks list, not the original [t1, t2]",
+    );
+
+    await ctl.stop();
+  });
+
+  it("setTracks wakes the curating loop so an empty stage that gets tracks starts playing", async () => {
+    // Stage starts with no tracks → curating mode. Plex grows to 1
+    // track → setTracks. Supervisor wakes from curating and starts
+    // playing the new track within ms (no waiting for some bounded
+    // poll interval).
+    const runner = makeControlledRunner();
+    const ctl = startStage({
+      stageId: "wakeup",
+      tracks: [], // empty initially
+      hlsDir: path.join(work, "wakeup"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    // First spawn is curating (empty playlist).
+    await runner.waitForCall(1);
+    assert.ok(
+      runner.calls[0]!.argv.includes("-stream_loop"),
+      "first spawn is the curating fallback",
+    );
+
+    // Plex now has a track — queue it.
+    const t1 = makeTrack({ plexRatingKey: 7, filePath: "/m/7.opus" });
+    ctl.setTracks([t1]);
+
+    // The mock runner's abort listener resolves the curating run
+    // automatically when its signal aborts. Outer loop continues
+    // and spawns the new track.
+    await runner.waitForCall(2);
+    assert.ok(
+      runner.calls[1]!.argv.includes("/m/7.opus"),
+      "after setTracks, supervisor switches from curating to playing",
+    );
+
+    await ctl.stop();
+  });
+
+  it("setTracks([]) at runtime sends a playing stage back to curating", async () => {
+    const runner = makeControlledRunner();
+    const ctl = startStage({
+      stageId: "drain",
+      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" })],
+      hlsDir: path.join(work, "drain"),
+      fallbackFile: "/tmp/curating.aac",
+      runTrackImpl: runner.run,
+      preflightImpl: acceptAllPreflight,
+      waitForFirstSegmentImpl: instantReadyWatcher,
+      sleep: zeroSleep,
+    });
+
+    await runner.waitForCall(1); // playing track 1
+    ctl.setTracks([]); // queue empty
+    runner.complete({ kind: "ok" }); // track 1 ends naturally
+
+    await runner.waitForCall(2);
+    assert.ok(
+      runner.calls[1]!.argv.includes("-stream_loop"),
+      "after setTracks([]), supervisor enters curating",
+    );
+
+    await ctl.stop();
+  });
+
   it("a throwing onEvent does not take the supervisor down", async () => {
     const runner = makeControlledRunner();
     const ctl = startStage({

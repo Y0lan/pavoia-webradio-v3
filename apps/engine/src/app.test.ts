@@ -29,6 +29,7 @@ function fakeController(
     status: () => snap.status,
     currentTrack: () => snap.track,
     snapshot: () => ({ ...snap }),
+    setTracks: () => {},
     stop: async () => {},
     done: Promise.resolve(),
   };
@@ -355,6 +356,7 @@ describe("createApp() — /api/stages/:id/now", () => {
       stageId: "opening",
       status: () => "playing",
       currentTrack: () => SAMPLE_TRACK,
+      setTracks: () => {},
       snapshot: () => {
         flips++;
         // If the handler called snapshot() multiple times it would

@@ -147,32 +147,62 @@ export async function bootstrap(
   // unexpectedly without waiting for a Plex change.
   const knownTracks = new Map<string, readonly import("@pavoia/shared").Track[]>();
 
+  // Consecutive "fast deaths" per stage — a controller's run loop
+  // terminating within FAST_DEATH_MS of being spawned counts as a
+  // failed revival. After MAX_CONSECUTIVE_FAST_DEATHS in a row the
+  // watcher gives up: the failure is clearly permanent (bad fallback
+  // file, programmer bug, mkdir always fails) and infinite respawn
+  // would just spam logs and burn cycles. A subsequent Plex-driven
+  // restart via onTracksChanged resets the counter.
+  const FAST_DEATH_MS = 5_000;
+  const MAX_CONSECUTIVE_FAST_DEATHS = 3;
+  const consecutiveFastDeaths = new Map<string, number>();
+
   let shuttingDown = false;
 
   function spawnAndWatch(
     stage: Stage,
     tracks: readonly import("@pavoia/shared").Track[],
   ): StageController {
+    const spawnedAt = Date.now();
     const controller = startStageImpl(
       buildStageConfig(stage, tracks, config, log),
     );
     registry.register(controller);
     // If the supervisor's run loop terminates unexpectedly (HLS dir
-    // mkdir mid-run, fallback preflight invalidated post-startup,
-    // etc.) AND we're not shutting down, immediately revive with the
-    // last-known tracks. Without this, a stage that died while Plex
-    // returned the same playlist would stay dead until the next
-    // unrelated Plex edit OR engine restart.
+    // mkdir mid-run, transient I/O, etc.) AND we're not shutting
+    // down AND it's not a clearly-permanent rapid restart loop,
+    // immediately revive with the last-known tracks.
     controller.done
       .then(() => {
         if (shuttingDown) return;
         // Only revive if the registered controller is still THIS one.
-        // A `setTracks → done` racing a poller-driven restart is
-        // possible; the most-recently-registered one wins.
+        // A poller-driven restart could have already replaced it.
         if (registry.get(stage.id) !== controller) return;
+
+        const lifetime = Date.now() - spawnedAt;
+        let fastCount = consecutiveFastDeaths.get(stage.id) ?? 0;
+        if (lifetime < FAST_DEATH_MS) {
+          fastCount += 1;
+          consecutiveFastDeaths.set(stage.id, fastCount);
+        } else {
+          // Stage actually ran for a while before dying — reset the
+          // counter so a much-later transient death gets a fresh
+          // revival budget.
+          consecutiveFastDeaths.set(stage.id, 0);
+          fastCount = 0;
+        }
+
+        if (fastCount >= MAX_CONSECUTIVE_FAST_DEATHS) {
+          log(
+            `[engine] stage=${stage.id} terminated ${fastCount} times within ${FAST_DEATH_MS}ms — giving up. Stage stays stopped until next Plex change or engine restart.`,
+          );
+          return;
+        }
+
         const tracksNow = knownTracks.get(stage.id) ?? [];
         log(
-          `[engine] stage=${stage.id} supervisor terminated unexpectedly — reviving with ${tracksNow.length} known tracks`,
+          `[engine] stage=${stage.id} supervisor terminated after ${lifetime}ms — reviving with ${tracksNow.length} known tracks (consecutive fast deaths: ${fastCount}/${MAX_CONSECUTIVE_FAST_DEATHS})`,
         );
         spawnAndWatch(stage, tracksNow);
       })
@@ -232,6 +262,9 @@ export async function bootstrap(
             `[engine] stage=${stageId} Plex tracks available (${tracks.length}) — starting supervisor`,
           );
         }
+        // User/Plex took explicit action — fresh attempt, reset the
+        // watcher's consecutive-fast-death counter.
+        consecutiveFastDeaths.set(stageId, 0);
         spawnAndWatch(stage, tracks);
       }
     },

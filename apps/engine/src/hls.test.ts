@@ -208,6 +208,26 @@ describe("createHlsHandler — validation + safety", () => {
     assert.equal(res.status, 404);
   });
 
+  it("returns CORS header on every error response (so browsers see real status, not opaque CORS failure)", async () => {
+    // Regression (Codex [P1]): without CORS on errors, hls.js sees
+    // a 404 for a not-yet-written segment as an opaque load error
+    // and breaks its retry/error logic.
+    for (const url of [
+      "/hls/no-such/index.m3u8", // 404 stage_not_found
+      "/hls/bus/index.m3u8", // 410 stage_has_no_audio
+      "/hls/opening/index.html", // 404 bad_filename
+      "/hls/opening/seg-99999.ts", // 404 file_not_found
+    ]) {
+      const res = await app.request(url);
+      assert.notEqual(res.status, 200, `${url} should not 200`);
+      assert.equal(
+        res.headers.get("access-control-allow-origin"),
+        "*",
+        `${url} must expose CORS header on error`,
+      );
+    }
+  });
+
   it("only accepts GET (no PUT/POST/DELETE)", async () => {
     for (const method of ["POST", "PUT", "DELETE", "PATCH"]) {
       const res = await app.request("/hls/opening/index.m3u8", { method });

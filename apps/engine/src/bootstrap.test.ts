@@ -517,6 +517,107 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
     );
   });
 
+  it("gives up reviving after MAX_CONSECUTIVE_FAST_DEATHS — no infinite respawn loop", async () => {
+    // Regression (Codex [P1]): without a fast-death cap, a
+    // permanently-broken stage (bad fallback file, deterministic
+    // crash, etc.) would respawn forever, spamming logs and burning
+    // cycles. The watcher rate-limits revivals: 3 fast deaths in a
+    // row → give up; rely on the next Plex change or engine restart.
+    const plex = scriptedPlex();
+    plex.setNext(100, [makeTrack(1)]);
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: [fakeStage("opening", 100)],
+      pollerSchedule: sched.schedule,
+      log: () => {},
+    });
+
+    // Kill controllers one at a time until the watcher stops
+    // reviving. Counter caps at MAX_CONSECUTIVE_FAST_DEATHS=3, so:
+    //   death 1 (original) → revive → controller [1] exists
+    //   death 2 (rev #1)   → revive → controller [2] exists
+    //   death 3 (rev #2)   → counter hits cap → NO new controller
+    //
+    // Loop until no new controller appears within a tick.
+    for (let i = 0; i < 5; i++) {
+      const before = created.length;
+      const ctl = created[i];
+      if (!ctl || ctl.stopped) break;
+      ctl.stopped = true;
+      ctl.resolveDone();
+      await new Promise((r) => setTimeout(r, 20));
+      if (created.length === before) break; // watcher gave up
+    }
+
+    // Total controllers = 1 original + 2 revivals = 3. The 3rd death
+    // hits the cap and the watcher leaves the stage stopped.
+    assert.equal(
+      created.length,
+      3,
+      `expected exactly 3 (1 original + 2 revivals before cap), got ${created.length}`,
+    );
+
+    await result.shutdown();
+  });
+
+  it("a Plex-driven onTracksChanged restart resets the fast-death counter", async () => {
+    // After the watcher gives up, a subsequent Plex change should
+    // give the stage a fresh attempt.
+    const plex = scriptedPlex();
+    plex.setNext(100, [makeTrack(1)]);
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: [fakeStage("opening", 100)],
+      pollerSchedule: sched.schedule,
+      log: () => {},
+    });
+
+    // Burn the revival budget — same loop structure as the cap test
+    // above. 3 deaths total (1 original + 2 revivals).
+    for (let i = 0; i < 5; i++) {
+      const before = created.length;
+      const ctl = created[i];
+      if (!ctl || ctl.stopped) break;
+      ctl.stopped = true;
+      ctl.resolveDone();
+      await new Promise((r) => setTimeout(r, 20));
+      if (created.length === before) break;
+    }
+    assert.equal(created.length, 3); // gave up after the 3rd death
+
+    // Plex now has a new track set. Poller fires onTracksChanged →
+    // stopped controller → spawn fresh. Counter reset. Even if the
+    // new one dies fast, it gets revivals again.
+    plex.setNext(100, [makeTrack(2)]);
+    await sched.tick();
+    assert.equal(
+      created.length,
+      4,
+      "Plex update should spawn a fresh controller",
+    );
+    // Fast-die the new one → should revive (counter was reset).
+    created[3]!.stopped = true;
+    created[3]!.resolveDone();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(
+      created.length,
+      5,
+      "after Plex-driven restart, the watcher gets a fresh revival budget",
+    );
+
+    await result.shutdown();
+  });
+
   it("uses the LATEST poller-known tracks when reviving (not the initial fetch)", async () => {
     const plex = scriptedPlex();
     plex.setNext(100, [makeTrack(1)]);

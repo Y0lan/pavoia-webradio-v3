@@ -51,6 +51,17 @@ export function createHlsHandler(input: CreateHlsHandlerInput): Hono {
 
   const app = new Hono();
 
+  // CORS on every response, including errors. hls.js + native iOS
+  // surface non-CORS-friendly 4xx as opaque "load error" instead of
+  // the actual status, which breaks normal HLS retry logic. The
+  // success path also re-asserts these headers but it's cheap.
+  app.use("/*", async (c, next) => {
+    await next();
+    if (!c.res.headers.has("access-control-allow-origin")) {
+      c.res.headers.set("access-control-allow-origin", "*");
+    }
+  });
+
   // /hls/<stageId>/<filename> — index.m3u8 or seg-<digits>.ts only.
   app.get("/:stageId/:filename", (c) =>
     serveStageFile(c, {
@@ -112,13 +123,11 @@ async function serveStageFile(
   //    reads are simpler than streaming and don't measurably hurt
   //    throughput for HLS.
   let bytes: Buffer;
-  let size: number;
   try {
     const s = await stat(fullPath);
     if (!s.isFile()) {
       return c.json({ error: "not_a_file" }, 404);
     }
-    size = s.size;
     bytes = await readFile(fullPath);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -128,14 +137,18 @@ async function serveStageFile(
   }
 
   // 5. Headers. Tuned for hls.js + native Safari/iOS:
-  //    - .m3u8 must not cache (live playlist rewritten every 3 s)
-  //    - .ts segments are immutable for their HLS-window lifetime
-  //    - CORS open, no credentials — public radio
+  //    - .m3u8 must not cache (live playlist rewritten every 3 s).
+  //    - .ts segments are immutable for their HLS-window lifetime.
+  //    - CORS open, no credentials — public radio.
+  //    - content-length comes from the BUFFER WE'RE SENDING, not the
+  //      stat result, so a m3u8 rewrite between stat() and readFile()
+  //      can't make us advertise a stale size that some HLS clients
+  //      treat as a truncated playlist reload.
   const headers: Record<string, string> = {
     "content-type": isPlaylist
       ? "application/vnd.apple.mpegurl"
       : "video/mp2t",
-    "content-length": String(size),
+    "content-length": String(bytes.length),
     "cache-control": isPlaylist
       ? "no-cache, no-store, must-revalidate"
       : "public, max-age=60, immutable",

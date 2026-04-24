@@ -159,31 +159,40 @@ async function serveStageFile(
     return c.json({ error: "path_traversal" }, 400);
   }
 
-  // 4. Symlink rejection + read. The path-text checks at (3) are
-  //    necessary but not sufficient — `stat()` and `readFile()`
-  //    follow symlinks, so a symlinked seg-*.ts inside the stage
-  //    dir could resolve outside the root. Defense in depth even
-  //    though the operator owns hlsRoot:
-  //      a. lstat the requested path; reject any symlink outright.
-  //      b. realpath both stageDir and fullPath, then re-verify
-  //         the resolved fullPath is still inside the resolved
-  //         stageDir (catches indirect symlinks within stageDir
-  //         that lstat alone wouldn't see).
+  // 4. Symlink rejection + containment + read. The path-text checks
+  //    at (3) are necessary but not sufficient — `stat()` and
+  //    `readFile()` follow symlinks, so multiple kinds of symlink
+  //    can escape the stage dir:
+  //      - a symlinked seg-*.ts inside the stage dir
+  //      - the stageDir ITSELF being a symlink to /tmp/evil
+  //    Both must be rejected. Layered defense:
+  //      a. lstat stageDir + the requested file; reject either if
+  //         it's a symbolic link. Catches the obvious cases up
+  //         front before we touch realpath.
+  //      b. realpath the requested file, then verify it's still
+  //         under ctx.hlsRootResolved (the operator-configured root,
+  //         resolved at handler creation). Catches indirect
+  //         symlinks at any intermediate path component, no matter
+  //         how creative.
   //    Then read. Sub-100 KB segments + tiny m3u8 — full-buffer
   //    reads are simpler than streaming and don't measurably hurt
   //    throughput for HLS.
   let bytes: Buffer;
   try {
-    const linkInfo = await lstat(fullPath);
-    if (linkInfo.isSymbolicLink()) {
+    const [stageDirInfo, fileInfo] = await Promise.all([
+      lstat(stageDir),
+      lstat(fullPath),
+    ]);
+    if (stageDirInfo.isSymbolicLink() || fileInfo.isSymbolicLink()) {
       return c.json({ error: "symlink_rejected" }, 400);
     }
-    const [stageDirReal, fullPathReal] = await Promise.all([
-      realpath(stageDir),
-      realpath(fullPath),
-    ]);
-    const relReal = path.relative(stageDirReal, fullPathReal);
-    if (relReal === "" || relReal.startsWith("..") || path.isAbsolute(relReal)) {
+    const fullPathReal = await realpath(fullPath);
+    const relToRoot = path.relative(ctx.hlsRootResolved, fullPathReal);
+    if (
+      relToRoot === "" ||
+      relToRoot.startsWith("..") ||
+      path.isAbsolute(relToRoot)
+    ) {
       return c.json({ error: "path_traversal" }, 400);
     }
     const s = await stat(fullPathReal);

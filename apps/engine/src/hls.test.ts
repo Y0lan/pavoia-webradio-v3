@@ -202,6 +202,33 @@ describe("createHlsHandler — validation + safety", () => {
     assert.equal(body.error, "symlink_rejected");
   });
 
+  it("rejects requests when the stage DIRECTORY itself is a symlink (containment escape)", async () => {
+    // Codex round-5 [P2]: realpath(fullPath) and realpath(stageDir)
+    // both resolve through a symlinked stage dir, so a relative
+    // check between them passes — but the served file is OUTSIDE
+    // the configured hlsRoot. Fix: lstat stageDir AND verify
+    // realpath(fullPath) is inside the configured hlsRoot.
+    const evilDir = path.join(work, "outside");
+    await mkdir(evilDir, { recursive: true });
+    await writeFile(path.join(evilDir, "seg-00000.ts"), Buffer.alloc(2048));
+    // Replace opening's stage dir with a symlink to the evil dir.
+    await rm(path.join(hlsRoot, "opening"), { recursive: true });
+    try {
+      await symlink(evilDir, path.join(hlsRoot, "opening"));
+    } catch {
+      return; // FS doesn't support symlinks; skip
+    }
+    const res = await app.request("/hls/opening/seg-00000.ts");
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: string };
+    // Either symlink_rejected (lstat path) or path_traversal
+    // (realpath containment path). Both are valid rejections.
+    assert.ok(
+      body.error === "symlink_rejected" || body.error === "path_traversal",
+      `expected rejection; got ${body.error}`,
+    );
+  });
+
   it("rejects a symlink even when it points to a regular file INSIDE the stage dir", async () => {
     // The lstat check is unconditional — any symlink is refused, not
     // just outside-pointing ones. Keeps the policy unambiguous.

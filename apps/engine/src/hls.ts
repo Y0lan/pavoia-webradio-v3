@@ -56,6 +56,25 @@ export interface CreateHlsHandlerInput {
 export function createHlsHandler(input: CreateHlsHandlerInput): Hono {
   const { hlsRoot, catalog = STAGES, registry } = input;
   const hlsRootResolved = path.resolve(hlsRoot);
+  // Memoized realpath of hlsRoot — required for the containment
+  // comparison in serveStageFile because realpath(fullPath) resolves
+  // through any symlinks. If we compared against path.resolve()
+  // alone, a symlinked HLS_ROOT (or any of its parents — common on
+  // Linux mount points like /var/run/...) would make every legit
+  // request look like a path traversal. Computed lazily on first
+  // request so the handler factory can stay sync, retried on
+  // failure (the supervisor may not have mkdir'd the parent yet).
+  let hlsRootRealCached: Promise<string> | null = null;
+  const getHlsRootReal = (): Promise<string> => {
+    if (hlsRootRealCached) return hlsRootRealCached;
+    hlsRootRealCached = realpath(hlsRootResolved).catch((err) => {
+      // Allow retry on the next request (e.g. ENOENT during a brief
+      // window where the operator is rotating the mount).
+      hlsRootRealCached = null;
+      throw err;
+    });
+    return hlsRootRealCached;
+  };
   // O(1) lookup for the stage validation hot path.
   const audioStageIds = new Set(
     catalog.filter((s) => !s.disabled).map((s) => s.id),
@@ -81,6 +100,7 @@ export function createHlsHandler(input: CreateHlsHandlerInput): Hono {
   app.get("/:stageId/:filename", (c) => {
     const ctx: ServeContext = {
       hlsRootResolved,
+      getHlsRootReal,
       audioStageIds,
       disabledStageIds,
       ...(registry !== undefined ? { registry } : {}),
@@ -96,6 +116,8 @@ export function createHlsHandler(input: CreateHlsHandlerInput): Hono {
 
 interface ServeContext {
   hlsRootResolved: string;
+  /** Memoized realpath of hlsRootResolved — see createHlsHandler. */
+  getHlsRootReal: () => Promise<string>;
   audioStageIds: ReadonlySet<string>;
   disabledStageIds: ReadonlySet<string>;
   registry?: StageRegistry;
@@ -186,8 +208,15 @@ async function serveStageFile(
     if (stageDirInfo.isSymbolicLink() || fileInfo.isSymbolicLink()) {
       return c.json({ error: "symlink_rejected" }, 400);
     }
-    const fullPathReal = await realpath(fullPath);
-    const relToRoot = path.relative(ctx.hlsRootResolved, fullPathReal);
+    const [fullPathReal, hlsRootReal] = await Promise.all([
+      realpath(fullPath),
+      ctx.getHlsRootReal(),
+    ]);
+    // Compare BOTH sides through realpath — using path.resolve() on
+    // hlsRootResolved would preserve symlinks, so a symlinked
+    // HLS_ROOT (e.g. /var/run/... on Linux) would make every
+    // legitimate request look like a path traversal.
+    const relToRoot = path.relative(hlsRootReal, fullPathReal);
     if (
       relToRoot === "" ||
       relToRoot.startsWith("..") ||

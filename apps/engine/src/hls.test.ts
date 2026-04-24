@@ -202,6 +202,38 @@ describe("createHlsHandler — validation + safety", () => {
     assert.equal(body.error, "symlink_rejected");
   });
 
+  it("works correctly when HLS_ROOT itself is reached through a symlink (Linux mount points)", async () => {
+    // Codex round-6 [P2]: comparing path.resolve(hlsRoot) (preserves
+    // symlinks) against realpath(fullPath) (resolves them) made
+    // every legit request look like a path traversal when HLS_ROOT
+    // (or any of its parents) was a symlink — common on Linux for
+    // /var/run/... /run/... /tmp -> /private/tmp on macOS, etc.
+    const realRoot = path.join(work, "real-hls-root");
+    await mkdir(path.join(realRoot, "opening"), { recursive: true });
+    await writeFile(
+      path.join(realRoot, "opening", "index.m3u8"),
+      "#EXTM3U\n#sym-rooted\n",
+    );
+    const linkedRoot = path.join(work, "linked-hls-root");
+    try {
+      await symlink(realRoot, linkedRoot);
+    } catch {
+      return; // FS doesn't support symlinks; skip
+    }
+
+    const root = new Hono();
+    root.route(
+      "/hls",
+      createHlsHandler({
+        hlsRoot: linkedRoot, // symlinked path
+        catalog: [fakeStage("opening"), fakeStage("bus", true, null)],
+      }),
+    );
+    const res = await root.request("/hls/opening/index.m3u8");
+    assert.equal(res.status, 200, "valid request through symlinked root");
+    assert.match(await res.text(), /sym-rooted/);
+  });
+
   it("rejects requests when the stage DIRECTORY itself is a symlink (containment escape)", async () => {
     // Codex round-5 [P2]: realpath(fullPath) and realpath(stageDir)
     // both resolve through a symlinked stage dir, so a relative

@@ -138,7 +138,17 @@ async function serveStageFile(
 
   // 5. Headers. Tuned for hls.js + native Safari/iOS:
   //    - .m3u8 must not cache (live playlist rewritten every 3 s).
-  //    - .ts segments are immutable for their HLS-window lifetime.
+  //    - .ts segments use a short max-age but are NOT marked
+  //      immutable. Reason: each supervisor start runs cleanStageDir
+  //      and ffmpeg's seg-%05d.ts numbering restarts at 00000, so
+  //      `/hls/<stage>/seg-00000.ts` refers to different bytes after
+  //      a deploy / watchdog restart. With `immutable`, browsers
+  //      and shared caches would replay stale audio for the full
+  //      max-age window after a restart. max-age=10 is enough for a
+  //      single listener to fetch each segment exactly once during
+  //      its rolling-window lifetime (~18 s on the server) without
+  //      a re-request, and short enough to bound the stale-audio
+  //      window after restart.
   //    - CORS open, no credentials — public radio.
   //    - content-length comes from the BUFFER WE'RE SENDING, not the
   //      stat result, so a m3u8 rewrite between stat() and readFile()
@@ -151,7 +161,7 @@ async function serveStageFile(
     "content-length": String(bytes.length),
     "cache-control": isPlaylist
       ? "no-cache, no-store, must-revalidate"
-      : "public, max-age=60, immutable",
+      : "public, max-age=10",
     "access-control-allow-origin": "*",
   };
   return new Response(new Uint8Array(bytes), { status: 200, headers });

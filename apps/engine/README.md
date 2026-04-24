@@ -100,7 +100,7 @@ Headers tuned for hls.js + native iOS Safari:
 | File | `Content-Type` | `Cache-Control` |
 |---|---|---|
 | `index.m3u8` | `application/vnd.apple.mpegurl` | `no-cache, no-store, must-revalidate` (live profile, rewritten every 3 s) |
-| `seg-NNNNN.ts` | `video/mp2t` | `public, max-age=60, immutable` (segments don't change once written) |
+| `seg-NNNNN.ts` | `video/mp2t` | `public, max-age=10` (NOT immutable — URLs re-bind to different bytes after engine restart since `seg-%05d.ts` numbering resets at 00000) |
 
 `Access-Control-Allow-Origin: *` on every response — public radio, no credentials.
 

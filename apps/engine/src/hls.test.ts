@@ -70,11 +70,20 @@ describe("createHlsHandler — happy path", () => {
     assert.match(body, /#EXTM3U/);
   });
 
-  it("serves a segment with mp2t content-type and immutable cache", async () => {
+  it("serves a segment with mp2t content-type and a SHORT max-age (NOT immutable)", async () => {
+    // Regression: segments WERE marked immutable, which caused stale
+    // audio after engine restarts (cleanStageDir + ffmpeg restarts
+    // numbering at 00000, so the same URL maps to different bytes).
     const res = await app.request("/hls/opening/seg-00000.ts");
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("content-type"), "video/mp2t");
-    assert.match(res.headers.get("cache-control") ?? "", /immutable/);
+    const cc = res.headers.get("cache-control") ?? "";
+    assert.match(cc, /max-age=\d+/);
+    assert.doesNotMatch(
+      cc,
+      /immutable/,
+      "segments must not be immutable — URLs re-bind after restart",
+    );
     assert.equal(res.headers.get("content-length"), "2048");
     const buf = new Uint8Array(await res.arrayBuffer());
     assert.equal(buf.length, 2048);

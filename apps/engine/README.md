@@ -108,13 +108,13 @@ Status codes:
 
 | Code | When |
 |---|---|
-| `200` | Known stage + valid filename + file present |
-| `400` | `path_traversal` (resolved path escapes the stage dir) |
+| `200` | Known stage with controller in `playing`/`curating` + valid filename + file present + not a symlink |
+| `400` | `path_traversal` (resolved path escapes the stage dir) / `symlink_rejected` |
 | `404` | `stage_not_found` / `bad_filename` / `file_not_found` / `not_a_file` |
 | `410` | `stage_has_no_audio` (the `bus` mystery stage) |
-| `503` | `hls_unavailable` (engine in HTTP-only mode) |
+| `503` | `hls_unavailable` (engine in HTTP-only mode) / `stage_not_running` (controller missing or in `starting`/`stopping`/`stopped`) |
 
-Symlinks inside `HLS_ROOT` ARE followed (no `lstat` rejection) — the operator owns the tmpfs and we trust them not to plant arbitrary symlinks. Documented in `hls.test.ts` as a known limitation.
+Symlinks inside `HLS_ROOT` are **rejected** (lstat detects them before stat would silently follow). Defense-in-depth even though the operator owns the tmpfs.
 
 ### `404 Not Found`
 

@@ -14,7 +14,7 @@
 // CORS is wide-open (*) — this is a public radio served to whichever
 // origin the web UI is hosted on, no credentials, no cookies.
 
-import { stat, readFile } from "node:fs/promises";
+import { stat, lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { Hono, type Context, type Handler } from "hono";
 
@@ -131,11 +131,19 @@ async function serveStageFile(
   //     failure, etc.) the last m3u8 + segments would still be on
   //     disk and we'd happily serve them — stale audio while
   //     /api/stages/:id/now correctly reports the stage as stopped.
-  //     When a registry is wired, refuse to serve a stage whose
-  //     controller is missing or in the "stopped" state.
+  //     We only allow `playing` / `curating` — the states where the
+  //     supervisor is actively producing audio.
+  //
+  //     `starting` and `stopping` are deliberately rejected too:
+  //     spawnAndWatch registers a replacement controller BEFORE
+  //     startStage runs cleanStageDir, so requests in that window
+  //     could read the previous run's stale files. Returning 503
+  //     during the transition gives clients a retriable signal
+  //     instead of stale audio.
   if (ctx.registry !== undefined) {
     const controller = ctx.registry.get(stageId);
-    if (controller === undefined || controller.status() === "stopped") {
+    const status = controller?.status();
+    if (status !== "playing" && status !== "curating") {
       return c.json({ error: "stage_not_running", stageId }, 503);
     }
   }
@@ -151,16 +159,38 @@ async function serveStageFile(
     return c.json({ error: "path_traversal" }, 400);
   }
 
-  // 4. Read the file. Sub-100 KB segments + tiny m3u8 — full-buffer
+  // 4. Symlink rejection + read. The path-text checks at (3) are
+  //    necessary but not sufficient — `stat()` and `readFile()`
+  //    follow symlinks, so a symlinked seg-*.ts inside the stage
+  //    dir could resolve outside the root. Defense in depth even
+  //    though the operator owns hlsRoot:
+  //      a. lstat the requested path; reject any symlink outright.
+  //      b. realpath both stageDir and fullPath, then re-verify
+  //         the resolved fullPath is still inside the resolved
+  //         stageDir (catches indirect symlinks within stageDir
+  //         that lstat alone wouldn't see).
+  //    Then read. Sub-100 KB segments + tiny m3u8 — full-buffer
   //    reads are simpler than streaming and don't measurably hurt
   //    throughput for HLS.
   let bytes: Buffer;
   try {
-    const s = await stat(fullPath);
+    const linkInfo = await lstat(fullPath);
+    if (linkInfo.isSymbolicLink()) {
+      return c.json({ error: "symlink_rejected" }, 400);
+    }
+    const [stageDirReal, fullPathReal] = await Promise.all([
+      realpath(stageDir),
+      realpath(fullPath),
+    ]);
+    const relReal = path.relative(stageDirReal, fullPathReal);
+    if (relReal === "" || relReal.startsWith("..") || path.isAbsolute(relReal)) {
+      return c.json({ error: "path_traversal" }, 400);
+    }
+    const s = await stat(fullPathReal);
     if (!s.isFile()) {
       return c.json({ error: "not_a_file" }, 404);
     }
-    bytes = await readFile(fullPath);
+    bytes = await readFile(fullPathReal);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       return c.json({ error: "file_not_found" }, 404);

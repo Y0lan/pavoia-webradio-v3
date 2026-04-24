@@ -184,8 +184,10 @@ describe("createHlsHandler — validation + safety", () => {
     assert.equal(body.error, "not_a_file");
   });
 
-  it("does not follow a symlink that points outside the stage dir", async () => {
-    if (process.getuid?.() === 0) return; // root: skip permission semantics
+  it("rejects a symlink even when it points to a regular file outside the stage dir", async () => {
+    // Defense-in-depth: even though the operator owns hlsRoot, we
+    // refuse to follow symlinks. lstat detects the link before stat
+    // would silently follow it.
     const outside = path.join(work, "secret.txt");
     await writeFile(outside, "ssssh");
     const symlinkPath = path.join(hlsRoot, "opening", "seg-00007.ts");
@@ -195,18 +197,29 @@ describe("createHlsHandler — validation + safety", () => {
       return; // some FS don't support symlinks (rare); skip silently
     }
     const res = await app.request("/hls/opening/seg-00007.ts");
-    // The catalog + filename pass; the stat shows it's a regular
-    // file (because Node follows symlinks by default). We DO end up
-    // serving the contents — this test documents that the current
-    // safety model relies on the operator NOT planting symlinks
-    // inside hlsRoot. If we ever need to harden against this, switch
-    // stat → lstat and reject symlinks. For now this is captured as
-    // a known limitation, NOT an exploit (the operator owns hlsRoot).
-    assert.equal(
-      res.status,
-      200,
-      "current model trusts hlsRoot — operator-owned tmpfs",
-    );
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: string };
+    assert.equal(body.error, "symlink_rejected");
+  });
+
+  it("rejects a symlink even when it points to a regular file INSIDE the stage dir", async () => {
+    // The lstat check is unconditional — any symlink is refused, not
+    // just outside-pointing ones. Keeps the policy unambiguous.
+    const realFile = path.join(hlsRoot, "opening", "seg-00009.ts");
+    await writeFile(realFile, Buffer.alloc(2048));
+    const symlinkPath = path.join(hlsRoot, "opening", "seg-00010.ts");
+    try {
+      await symlink(realFile, symlinkPath);
+    } catch {
+      return;
+    }
+    const res = await app.request("/hls/opening/seg-00010.ts");
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: string };
+    assert.equal(body.error, "symlink_rejected");
+    // The original (non-symlinked) file STILL serves fine.
+    const real = await app.request("/hls/opening/seg-00009.ts");
+    assert.equal(real.status, 200);
   });
 
   it("returns 404 for /hls (no stage path)", async () => {

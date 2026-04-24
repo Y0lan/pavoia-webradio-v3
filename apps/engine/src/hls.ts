@@ -20,6 +20,8 @@ import { Hono, type Context, type Handler } from "hono";
 
 import { STAGES, type Stage } from "@pavoia/shared";
 
+import type { StageRegistry } from "./stages/registry.ts";
+
 const SEGMENT_PATTERN = /^seg-\d+\.ts$/;
 const PLAYLIST_NAME = "index.m3u8";
 
@@ -32,6 +34,19 @@ export interface CreateHlsHandlerInput {
    * with fewer valid ids.
    */
   catalog?: readonly Stage[];
+  /**
+   * Optional registry. When provided, the handler refuses to serve
+   * a stage whose controller is missing OR has reached the
+   * "stopped" terminal state — the stage's last `index.m3u8` and
+   * segment files would otherwise stick around on tmpfs and serve
+   * stale audio (cleanStageDir only runs on supervisor START, not
+   * on its termination). Returns 503 stage_not_running.
+   *
+   * When omitted (e.g. unit tests of the static surface), the
+   * liveness gate is skipped and the handler trusts the catalog +
+   * filename validation.
+   */
+  registry?: StageRegistry;
 }
 
 /**
@@ -39,7 +54,7 @@ export interface CreateHlsHandlerInput {
  * path the parent app uses to .route() it.
  */
 export function createHlsHandler(input: CreateHlsHandlerInput): Hono {
-  const { hlsRoot, catalog = STAGES } = input;
+  const { hlsRoot, catalog = STAGES, registry } = input;
   const hlsRootResolved = path.resolve(hlsRoot);
   // O(1) lookup for the stage validation hot path.
   const audioStageIds = new Set(
@@ -63,13 +78,15 @@ export function createHlsHandler(input: CreateHlsHandlerInput): Hono {
   });
 
   // /hls/<stageId>/<filename> — index.m3u8 or seg-<digits>.ts only.
-  app.get("/:stageId/:filename", (c) =>
-    serveStageFile(c, {
+  app.get("/:stageId/:filename", (c) => {
+    const ctx: ServeContext = {
       hlsRootResolved,
       audioStageIds,
       disabledStageIds,
-    }),
-  );
+      ...(registry !== undefined ? { registry } : {}),
+    };
+    return serveStageFile(c, ctx);
+  });
 
   // Anything else under /hls/* (eg /hls or /hls/<stage>/) is 404.
   app.all("/*", (c) => c.json({ error: "not_found" }, 404));
@@ -81,6 +98,7 @@ interface ServeContext {
   hlsRootResolved: string;
   audioStageIds: ReadonlySet<string>;
   disabledStageIds: ReadonlySet<string>;
+  registry?: StageRegistry;
 }
 
 async function serveStageFile(
@@ -106,6 +124,20 @@ async function serveStageFile(
   const isSegment = SEGMENT_PATTERN.test(filename);
   if (!isPlaylist && !isSegment) {
     return c.json({ error: "bad_filename" }, 404);
+  }
+
+  // 2a. Liveness gate. cleanStageDir only runs at supervisor START,
+  //     so if a supervisor terminated (fast-death cap, fallback
+  //     failure, etc.) the last m3u8 + segments would still be on
+  //     disk and we'd happily serve them — stale audio while
+  //     /api/stages/:id/now correctly reports the stage as stopped.
+  //     When a registry is wired, refuse to serve a stage whose
+  //     controller is missing or in the "stopped" state.
+  if (ctx.registry !== undefined) {
+    const controller = ctx.registry.get(stageId);
+    if (controller === undefined || controller.status() === "stopped") {
+      return c.json({ error: "stage_not_running", stageId }, 503);
+    }
   }
 
   // 3. Compose + verify the resolved path is INSIDE hlsRoot/stageId/.

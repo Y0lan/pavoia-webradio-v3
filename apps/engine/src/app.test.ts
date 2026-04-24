@@ -393,12 +393,20 @@ describe("createApp() — /api/stages/:id/now", () => {
 });
 
 describe("createApp() — /hls/* wiring", () => {
-  it("returns 503 hls_unavailable when hlsRoot is not provided", async () => {
+  it("returns 503 hls_unavailable WITH CORS header when hlsRoot is not provided", async () => {
+    // Regression (Codex round-3 [P2]): the HTTP-only-mode 503 must
+    // include CORS so browsers see an actionable status, not an
+    // opaque CORS failure.
     const app = createApp(); // no deps
     const res = await app.request("/hls/opening/index.m3u8");
     assert.equal(res.status, 503);
     const body = (await res.json()) as { error: string };
     assert.equal(body.error, "hls_unavailable");
+    assert.equal(
+      res.headers.get("access-control-allow-origin"),
+      "*",
+      "CORS header must be present even on the unavailable fallback",
+    );
   });
 
   it("mounts the hls handler when hlsRoot is provided", async () => {

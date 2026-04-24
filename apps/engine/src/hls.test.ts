@@ -6,6 +6,8 @@ import path from "node:path";
 import { Hono } from "hono";
 
 import { createHlsHandler } from "./hls.ts";
+import { createStageRegistry } from "./stages/registry.ts";
+import type { StageController } from "./stages/supervisor.ts";
 import type { Stage } from "@pavoia/shared";
 
 function fakeStage(
@@ -235,6 +237,66 @@ describe("createHlsHandler — validation + safety", () => {
         `${url} must expose CORS header on error`,
       );
     }
+  });
+
+  it("returns 503 stage_not_running when registry says the stage is stopped (avoids stale audio)", async () => {
+    // Regression (Codex round-3 [P2]): a supervisor that died
+    // post-startup leaves its last m3u8 + segments on disk because
+    // cleanStageDir only runs at supervisor START. Without the
+    // liveness gate, /hls/<stage>/* would happily serve those
+    // stale files while /api/stages/:id/now correctly reports the
+    // stage as stopped.
+    const registry = createStageRegistry();
+    const stoppedCtl: StageController = {
+      stageId: "opening",
+      status: () => "stopped",
+      currentTrack: () => null,
+      snapshot: () => ({
+        status: "stopped",
+        track: null,
+        trackStartedAt: null,
+      }),
+      setTracks: () => {},
+      stop: async () => {},
+      done: Promise.resolve(),
+    };
+    registry.register(stoppedCtl);
+
+    const root = new Hono();
+    root.route(
+      "/hls",
+      createHlsHandler({
+        hlsRoot,
+        catalog: [fakeStage("opening"), fakeStage("bus", true, null)],
+        registry,
+      }),
+    );
+
+    const res = await root.request("/hls/opening/index.m3u8");
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { error: string; stageId: string };
+    assert.equal(body.error, "stage_not_running");
+    assert.equal(body.stageId, "opening");
+    // Liveness gate uses the same CORS middleware path.
+    assert.equal(res.headers.get("access-control-allow-origin"), "*");
+  });
+
+  it("returns 503 stage_not_running when registry has no controller for the stage", async () => {
+    // Bootstrap hasn't registered this stage yet (still spinning up).
+    const registry = createStageRegistry();
+    const root = new Hono();
+    root.route(
+      "/hls",
+      createHlsHandler({
+        hlsRoot,
+        catalog: [fakeStage("opening"), fakeStage("bus", true, null)],
+        registry,
+      }),
+    );
+    const res = await root.request("/hls/opening/index.m3u8");
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { error: string };
+    assert.equal(body.error, "stage_not_running");
   });
 
   it("only accepts GET (no PUT/POST/DELETE)", async () => {

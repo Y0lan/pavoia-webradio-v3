@@ -147,13 +147,23 @@ export function createApp(deps: AppDeps = {}): Hono {
   });
 
   // /hls/*  — per-stage HLS output (m3u8 + segments). When hlsRoot
-  // isn't wired (HTTP-only canary), fall through to a 503 sentinel.
+  // isn't wired (HTTP-only canary), fall through to a 503 sentinel
+  // WITH the same CORS header the real handler returns — otherwise
+  // browsers in the canary scenario see opaque CORS failure instead
+  // of an actionable 503.
   if (hlsRoot !== undefined) {
-    app.route("/hls", createHlsHandler({ hlsRoot }));
-  } else {
-    app.all("/hls/*", (c) =>
-      c.json({ error: "hls_unavailable" }, 503),
+    app.route(
+      "/hls",
+      createHlsHandler({
+        hlsRoot,
+        ...(registry !== undefined ? { registry } : {}),
+      }),
     );
+  } else {
+    app.all("/hls/*", (c) => {
+      c.header("access-control-allow-origin", "*");
+      return c.json({ error: "hls_unavailable" }, 503);
+    });
   }
 
   app.notFound((c) => c.json({ error: "not_found", path: c.req.path }, 404));

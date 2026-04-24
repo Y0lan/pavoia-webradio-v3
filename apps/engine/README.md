@@ -6,7 +6,7 @@ See `../../docs/SLIM_V3.md` for the full feature scope, `../../docs/WEEK0_LOG.md
 
 ## Status
 
-**Week 1 Tasks 1–5 — complete except `/hls/*`.** The engine bootstraps the HTTP server (Task 1), has a Plex playlist client with validation + pagination (Task 2), runs a per-stage ffmpeg supervisor with crash restart, fallback, preflight, TTL'd dead tracks, and a first-segment watchdog (Task 3 + hardening), is verified click-free end-to-end against real ffmpeg (Task 4), and now exposes `GET /api/stages` + `GET /api/stages/:id/now`, a Plex client + N supervisors at startup, and a 60 s polling loop that swaps a stage's tracks when Plex changes (Task 5). What's missing: the `/hls/*` static file handler, the WebSocket hub, and `deploy/bin/*` scripts.
+**Week 1 Tasks 1–5 — complete.** The engine bootstraps the HTTP server (Task 1), has a Plex playlist client with validation + pagination (Task 2), runs a per-stage ffmpeg supervisor with crash restart, fallback, preflight, TTL'd dead tracks, first-segment watchdog, and queue-don't-restart Plex updates (Task 3 + hardening), is verified click-free end-to-end against real ffmpeg (Task 4), and now exposes the full read-side API + `/hls/*` static handler — `GET /api/stages` + `GET /api/stages/:id/now` + `GET /hls/<stageId>/index.m3u8` + `GET /hls/<stageId>/seg-NNNNN.ts` — driven by a Plex client + N supervisors at startup, a 60 s polling loop that queues track changes, parallel startup fetches, and a liveness watcher that revives supervisors that die unexpectedly (Task 5). What's missing for v3.0 MVP: WebSocket hub for `track_changed` events (UI optimization, the REST `/now` endpoint already covers polling), and `deploy/bin/*` scripts (Task 6).
 
 ## Scripts
 
@@ -91,6 +91,31 @@ Status codes:
 
 The `Track` is projected via `toPublicTrack` so the engine-internal `filePath` cannot leak.
 
+### `GET /hls/:stageId/index.m3u8` and `GET /hls/:stageId/seg-NNNNN.ts`
+
+Static HLS files written by the per-stage ffmpeg into `<HLS_ROOT>/<stageId>/`. The path-traversal guard validates `stageId` against the static catalog and `filename` against an exact regex (`index.m3u8` or `seg-\d+\.ts`) BEFORE composing the on-disk path; a redundant resolved-path-stays-inside-stageDir check catches future regressions.
+
+Headers tuned for hls.js + native iOS Safari:
+
+| File | `Content-Type` | `Cache-Control` |
+|---|---|---|
+| `index.m3u8` | `application/vnd.apple.mpegurl` | `no-cache, no-store, must-revalidate` (live profile, rewritten every 3 s) |
+| `seg-NNNNN.ts` | `video/mp2t` | `public, max-age=60, immutable` (segments don't change once written) |
+
+`Access-Control-Allow-Origin: *` on every response — public radio, no credentials.
+
+Status codes:
+
+| Code | When |
+|---|---|
+| `200` | Known stage + valid filename + file present |
+| `400` | `path_traversal` (resolved path escapes the stage dir) |
+| `404` | `stage_not_found` / `bad_filename` / `file_not_found` / `not_a_file` |
+| `410` | `stage_has_no_audio` (the `bus` mystery stage) |
+| `503` | `hls_unavailable` (engine in HTTP-only mode) |
+
+Symlinks inside `HLS_ROOT` ARE followed (no `lstat` rejection) — the operator owns the tmpfs and we trust them not to plant arbitrary symlinks. Documented in `hls.test.ts` as a known limitation.
+
 ### `404 Not Found`
 
 Any unmatched route:
@@ -128,6 +153,8 @@ src/
 ├── config.test.ts
 ├── bootstrap.ts                   # bootstrap(input) → { app, registry, poller, shutdown }
 ├── bootstrap.test.ts              # mock-driven coverage of the full wiring flow
+├── hls.ts                         # /hls/<stage>/<file> handler (path-traversal guard, HLS headers, CORS)
+├── hls.test.ts                    # 12 tests: m3u8 + segment serving, every rejection path, symlink limitation
 ├── shutdown.test.ts               # integration: spawn index.ts, send signals, assert exit codes
 ├── index.ts                       # entry point: loadConfig → bootstrap → serve → signals
 ├── plex/
@@ -210,6 +237,6 @@ await ctl.stop();  // SIGTERM current ffmpeg, SIGKILL after 5s if stubborn
 
 Coming in later Week 1 tasks:
 
-- **Task 5 final slice** — `/hls/*` static file handler over `HLS_ROOT` (path-traversal guard required) + WebSocket hub for `track_changed` events.
+- **Task 5 epilogue** — WebSocket hub for `track_changed` events (UI optimization; the existing REST `/now` endpoint covers polling).
 - **Task 6** — `deploy/bin/start-engine.sh`, cron entries, watchdog port from v2.
 - **Task 7** — ship to `v3.nicemouth.box.ca`.

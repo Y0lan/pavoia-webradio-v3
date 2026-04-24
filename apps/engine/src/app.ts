@@ -13,6 +13,7 @@ import {
   type Stage,
 } from "@pavoia/shared";
 
+import { createHlsHandler } from "./hls.ts";
 import type { StageRegistry } from "./stages/registry.ts";
 
 export type HealthBody = {
@@ -40,13 +41,18 @@ export type StagesBody = {
 };
 
 /**
- * Optional dependencies for the Hono app. When `registry` is provided,
- * `/api/stages/:id/now` queries it for live state. When omitted (e.g.
- * tests of the static surface, or the engine before supervisors have
- * been wired in `index.ts`), `/now` returns 503.
+ * Optional dependencies for the Hono app.
+ *
+ * - `registry` — when provided, `/api/stages/:id/now` queries it for
+ *   live state. When omitted, `/now` returns 503.
+ * - `hlsRoot` — when provided, `/hls/*` serves the per-stage HLS
+ *   output from there. When omitted, `/hls/*` returns 503 — useful
+ *   for HTTP-only canary deploys + the existing shutdown integration
+ *   tests.
  */
 export interface AppDeps {
   registry?: StageRegistry;
+  hlsRoot?: string;
 }
 
 const PORT_PATTERN = /^[1-9]\d{0,4}$/;
@@ -68,7 +74,7 @@ export function resolvePort(raw: string | undefined): number {
 }
 
 export function createApp(deps: AppDeps = {}): Hono {
-  const { registry } = deps;
+  const { registry, hlsRoot } = deps;
   const app = new Hono();
 
   app.get("/api/health", (c) => {
@@ -139,6 +145,16 @@ export function createApp(deps: AppDeps = {}): Hono {
     };
     return c.json(body);
   });
+
+  // /hls/*  — per-stage HLS output (m3u8 + segments). When hlsRoot
+  // isn't wired (HTTP-only canary), fall through to a 503 sentinel.
+  if (hlsRoot !== undefined) {
+    app.route("/hls", createHlsHandler({ hlsRoot }));
+  } else {
+    app.all("/hls/*", (c) =>
+      c.json({ error: "hls_unavailable" }, 503),
+    );
+  }
 
   app.notFound((c) => c.json({ error: "not_found", path: c.req.path }, 404));
 

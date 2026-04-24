@@ -391,3 +391,41 @@ describe("createApp() — /api/stages/:id/now", () => {
     assert.equal(res.status, 404);
   });
 });
+
+describe("createApp() — /hls/* wiring", () => {
+  it("returns 503 hls_unavailable when hlsRoot is not provided", async () => {
+    const app = createApp(); // no deps
+    const res = await app.request("/hls/opening/index.m3u8");
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { error: string };
+    assert.equal(body.error, "hls_unavailable");
+  });
+
+  it("mounts the hls handler when hlsRoot is provided", async () => {
+    // Just verify the routing — the handler's own tests cover the
+    // serve semantics. This is sanity that createApp wires it.
+    const { mkdtemp, rm, mkdir, writeFile } = await import(
+      "node:fs/promises"
+    );
+    const { tmpdir } = await import("node:os");
+    const path = (await import("node:path")).default;
+    const work = await mkdtemp(path.join(tmpdir(), "pavoia-app-hls-"));
+    try {
+      const hlsRoot = path.join(work, "hls");
+      await mkdir(path.join(hlsRoot, "opening"), { recursive: true });
+      await writeFile(
+        path.join(hlsRoot, "opening", "index.m3u8"),
+        "#EXTM3U\n",
+      );
+      const app = createApp({ hlsRoot });
+      const res = await app.request("/hls/opening/index.m3u8");
+      assert.equal(res.status, 200);
+      assert.equal(
+        res.headers.get("content-type"),
+        "application/vnd.apple.mpegurl",
+      );
+    } finally {
+      await rm(work, { recursive: true, force: true });
+    }
+  });
+});

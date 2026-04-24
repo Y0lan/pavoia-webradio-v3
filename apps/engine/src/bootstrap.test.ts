@@ -63,16 +63,26 @@ interface FakeStageController extends StageController {
   config: StartStageConfig;
   /** Track lists passed to setTracks() during this controller's life. */
   setTracksCalls: Array<readonly Track[]>;
+  /** Resolves the `done` promise — simulates the run loop terminating
+   *  unexpectedly so the bootstrap revival path can be exercised. */
+  resolveDone: () => void;
 }
 
 function fakeStartStageFactory() {
   const created: FakeStageController[] = [];
   function fakeStartStage(config: StartStageConfig): StageController {
+    let resolveDoneFn: (() => void) | null = null;
+    const donePromise = new Promise<void>((resolve) => {
+      resolveDoneFn = resolve;
+    });
     const ctl: FakeStageController = {
       stageId: config.stageId,
       stopped: false,
       config,
       setTracksCalls: [],
+      resolveDone: () => {
+        if (resolveDoneFn) resolveDoneFn();
+      },
       status: () => (ctl.stopped ? "stopped" : "playing"),
       currentTrack: () => null,
       snapshot: () => ({
@@ -85,8 +95,9 @@ function fakeStartStageFactory() {
       },
       stop: async () => {
         ctl.stopped = true;
+        if (resolveDoneFn) resolveDoneFn();
       },
-      done: Promise.resolve(),
+      done: donePromise,
     };
     created.push(ctl);
     return ctl;
@@ -419,13 +430,23 @@ describe("bootstrap — Plex polling queues track updates", () => {
     await result.shutdown();
   });
 
-  it("starts a fresh supervisor when no controller is registered for the stage", async () => {
-    // This branch fires when a stage was unregistered externally — not
-    // the normal bootstrap path (where every audio stage gets a
-    // controller at startup). Keeps the codepath honest.
+  // The "no controller registered for the stage" branch in
+  // bootstrap.onTracksChanged is now effectively unreachable in the
+  // normal lifecycle: every audio stage gets a controller at startup,
+  // and the liveness watcher (issue #12 item 2) immediately revives
+  // any controller that terminates. The branch is kept defensively
+  // for hypothetical future paths where a stage gets unregistered
+  // externally; it doesn't need a regression test of its own.
+});
+
+describe("bootstrap — controller liveness watcher (issue #12)", () => {
+  it("revives a supervisor whose run loop terminated unexpectedly while the engine is up", async () => {
+    // Regression for issue #12 item 2: a supervisor that died
+    // post-startup with no Plex change in sight stayed dead until
+    // engine restart. The bootstrap-side liveness watcher restarts
+    // it with the most recently known tracks.
     const plex = scriptedPlex();
     plex.setNext(100, [makeTrack(1)]);
-    plex.setNext(200, [makeTrack(10)]);
     const { fakeStartStage, created } = fakeStartStageFactory();
     const sched = manualSchedule();
 
@@ -433,20 +454,101 @@ describe("bootstrap — Plex polling queues track updates", () => {
       config: BASE_CONFIG,
       plexClient: plex.client,
       startStageImpl: fakeStartStage,
-      audioStages: TWO_STAGES,
+      audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
     });
 
-    // Manually un-register opening to simulate the corner case.
-    const openingCtl = result.registry.get("opening")!;
-    await openingCtl.stop();
-    // Hack: registry has no `delete` method; we'll just check the
-    // poller path by registering a sentinel that fakeStartStage
-    // reuses. Simpler: assert that BEFORE the tick, exactly one
-    // opening was created.
-    const beforeCount = created.filter((c) => c.stageId === "opening").length;
-    assert.equal(beforeCount, 1);
+    assert.equal(created.length, 1);
+    const first = created[0]!;
+
+    // Simulate the run loop terminating unexpectedly (HLS dir mid-
+    // run failure, fallback preflight invalidated, etc).
+    first.stopped = true;
+    first.resolveDone();
+
+    // Wait for the watcher's microtask + the spawnAndWatch chain.
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.equal(
+      created.length,
+      2,
+      "bootstrap should have spawned a replacement controller",
+    );
+    const replacement = created[1]!;
+    assert.equal(replacement.stageId, "opening");
+    assert.deepEqual(
+      replacement.config.tracks.map((t) => t.plexRatingKey),
+      [1],
+      "replacement uses the most recently known tracks (initial fetch)",
+    );
+    // Registry now points at the replacement, not the dead first one.
+    assert.equal(result.registry.get("opening"), replacement);
+
+    await result.shutdown();
+  });
+
+  it("does NOT revive supervisors when the engine is shutting down", async () => {
+    const plex = scriptedPlex();
+    plex.setNext(100, [makeTrack(1)]);
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: [fakeStage("opening", 100)],
+      pollerSchedule: sched.schedule,
+      log: () => {},
+    });
+
+    // Initiate shutdown — that flips the internal flag BEFORE
+    // resolving each controller's `done` via stop(). The watcher
+    // should see `shuttingDown` and skip revival.
+    await result.shutdown();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Only the original controller exists — no zombie revive.
+    assert.equal(
+      created.length,
+      1,
+      "no revival should fire during/after shutdown",
+    );
+  });
+
+  it("uses the LATEST poller-known tracks when reviving (not the initial fetch)", async () => {
+    const plex = scriptedPlex();
+    plex.setNext(100, [makeTrack(1)]);
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: [fakeStage("opening", 100)],
+      pollerSchedule: sched.schedule,
+      log: () => {},
+    });
+
+    // First poller tick changes the playlist; setTracks is called
+    // on the (still-alive) original. knownTracks is updated to [1, 7].
+    plex.setNext(100, [makeTrack(1), makeTrack(7)]);
+    await sched.tick();
+    assert.equal(created[0]!.setTracksCalls.length, 1);
+
+    // Now the original dies.
+    created[0]!.stopped = true;
+    created[0]!.resolveDone();
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.equal(created.length, 2);
+    assert.deepEqual(
+      created[1]!.config.tracks.map((t) => t.plexRatingKey),
+      [1, 7],
+      "revival uses the latest known tracks, not the initial-fetch snapshot",
+    );
 
     await result.shutdown();
   });

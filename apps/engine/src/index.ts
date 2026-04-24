@@ -63,7 +63,14 @@ const server = serve(
 
 server.on("error", (err) => {
   console.error(`[engine] server error:`, err);
-  process.exit(1);
+  // EADDRINUSE / EPERM after a full bootstrap leaves supervisors +
+  // poller already running. Tear them down gracefully before exit
+  // so we don't leak ffmpeg processes through OS pipe teardown.
+  // Bounded by a hard timer so a hung shutdown can't trap the
+  // process — the watchdog will see the dead pid and respawn anyway.
+  const force = setTimeout(() => process.exit(1), SHUTDOWN_TIMEOUT_MS);
+  force.unref();
+  shutdownEngine().catch(() => {}).finally(() => process.exit(1));
 });
 
 let shuttingDown = false;

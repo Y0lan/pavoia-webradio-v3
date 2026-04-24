@@ -24,6 +24,10 @@ die() { log "ERROR: $*"; exit 1; }
 
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
+# Wait budget for an in-flight engine to drain before we declare it healthy.
+# The engine has a 15 s graceful-shutdown budget (apps/engine/README.md), so we
+# need a strictly larger window. Override via env for fast smoke tests.
+DRAIN_WAIT_SECS="${ENGINE_DRAIN_WAIT_SECS:-20}"
 
 NODE_BIN="$RADIO_HOME/bin/node"
 ENGINE_ENTRY="$RADIO_HOME/apps/engine/dist/index.js"
@@ -48,12 +52,52 @@ mkdir -p "$LOG_DIR" "$RUN_DIR"
 
 if [ -f "$PID_FILE" ]; then
   existing_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
-  if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
-    log "engine already running (pid $existing_pid); nothing to do"
-    exit 0
+  if [ -z "$existing_pid" ]; then
+    log "empty pid file; clearing"
+    rm -f "$PID_FILE"
+  elif ! kill -0 "$existing_pid" 2>/dev/null; then
+    log "stale pid file (pid $existing_pid not alive); clearing"
+    rm -f "$PID_FILE"
+  else
+    # PID is alive. Confirm it's owned by us — defends against post-reboot PID
+    # reuse where the recorded number now belongs to some unrelated process.
+    pid_uid="$(ps -o uid= -p "$existing_pid" 2>/dev/null | tr -d '[:space:]' || true)"
+    our_uid="$(id -u)"
+    if [ -z "$pid_uid" ] || [ "$pid_uid" != "$our_uid" ]; then
+      log "pid $existing_pid alive but not owned by us (uid=${pid_uid:-?} vs ${our_uid}); treating as stale"
+      rm -f "$PID_FILE"
+    else
+      # Genuinely an alive process we own. Two cases collapse here:
+      #   (a) Healthy engine called via @reboot or watchdog-against-healthy.
+      #       Should leave it alone.
+      #   (b) Engine in graceful-shutdown drain — deploy/watchdog flow is
+      #       `kill && start-engine.sh` per WEEK0_LOG.md Step 2, and the
+      #       engine takes up to 15 s to flush in-flight requests.
+      #       Without waiting we'd false-positive (b) as (a), see the old
+      #       engine exit moments later, and leave nothing running until
+      #       the next watchdog tick (≥3 minutes of dead air). [Codex P1]
+      # Wait up to DRAIN_WAIT_SECS for it to exit, polling every 0.5 s.
+      log "found alive engine pid $existing_pid; waiting up to ${DRAIN_WAIT_SECS}s for drain"
+      drained="no"
+      deadline_tenths=$((DRAIN_WAIT_SECS * 2))
+      tenths=0
+      while [ "$tenths" -lt "$deadline_tenths" ]; do
+        if ! kill -0 "$existing_pid" 2>/dev/null; then
+          drained="yes"
+          break
+        fi
+        sleep 0.5
+        tenths=$((tenths + 1))
+      done
+      if [ "$drained" = "yes" ]; then
+        log "previous engine pid $existing_pid drained after $((tenths / 2))s; spawning fresh"
+        rm -f "$PID_FILE"
+      else
+        log "engine still healthy after ${DRAIN_WAIT_SECS}s wait (pid $existing_pid); nothing to do"
+        exit 0
+      fi
+    fi
   fi
-  log "stale pid file (pid '$existing_pid' not alive); clearing"
-  rm -f "$PID_FILE"
 fi
 
 log "spawning engine: $NODE_BIN $ENGINE_ENTRY"

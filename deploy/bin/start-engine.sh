@@ -32,9 +32,13 @@ umask 077
 log() { printf '[start-engine] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
-# Accept "node" (Node 22) and any newer-Node thread-named variant such as
-# "node-MainThread" (Node 25+). Anything else is not our engine.
-is_node_comm() { case "$1" in node|node-*) return 0 ;; *) return 1 ;; esac; }
+# Read /proc/$pid/cmdline as a space-joined string. Returns empty if the
+# pid no longer exists or proc isn't available.
+pid_cmdline() {
+  if [ -r "/proc/$1/cmdline" ]; then
+    tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null
+  fi
+}
 
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
@@ -119,26 +123,35 @@ if [ -f "$PID_FILE" ]; then
     log "stale pid file (pid $existing_pid not alive); clearing"
     rm -f "$PID_FILE"
   else
-    # Defend against post-reboot PID reuse — same-user PID collisions are
-    # rare but real on a long-lived seedbox account. Two-pronged check:
+    # Defend against post-reboot PID reuse and same-user node confusion.
+    # Two-pronged check:
     #   1. UID match (cheap rule-out for cross-user reuse).
-    #   2. Process binary is `node` (rules out same-user reuse by other
-    #      long-running processes — shells, other node services, etc.).
-    # Without #2, an unrelated long-running same-user process holding the
-    # recorded PID would force the wrapper through the full drain wait then
-    # exit 1 "wedged," looping every watchdog tick until manual cleanup.
-    # [Codex round-3 P2]
+    #   2. /proc/$pid/cmdline includes our exact ENGINE_ENTRY path. Just
+    #      checking comm=node was ambiguous on a host running multiple
+    #      same-user node processes (e.g. apps/web alongside the engine);
+    #      the cmdline check pins the recorded PID specifically to our
+    #      engine entry point. [Codex round-4 P2-A]
+    # Without these, a stale PID held by an unrelated process would force
+    # the wrapper through the full drain wait then exit 1 "wedged," looping
+    # every watchdog tick until manual cleanup. [Codex round-3 P2]
     pid_uid="$(ps -o uid= -p "$existing_pid" 2>/dev/null | tr -d '[:space:]' || true)"
-    pid_comm="$(ps -o comm= -p "$existing_pid" 2>/dev/null | tr -d '[:space:]' || true)"
+    cmdline="$(pid_cmdline "$existing_pid")"
     our_uid="$(id -u)"
     if [ -z "$pid_uid" ] || [ "$pid_uid" != "$our_uid" ]; then
       log "pid $existing_pid alive but not owned by us (uid=${pid_uid:-?} vs ${our_uid}); treating as stale"
       rm -f "$PID_FILE"
-    elif ! is_node_comm "$pid_comm"; then
-      log "pid $existing_pid alive but not a node process (comm=${pid_comm:-?}); treating as stale"
+    elif ! [[ " $cmdline " == *" $ENGINE_ENTRY "* ]]; then
+      log "pid $existing_pid alive but cmdline does not include $ENGINE_ENTRY (probably another node service); treating as stale"
       rm -f "$PID_FILE"
-    elif probe_health; then
-      log "engine pid $existing_pid responds healthy on /api/health; nothing to do"
+    elif probe_health && { sleep 0.25; probe_health; }; then
+      # Two probes 250 ms apart confirm the engine isn't just a few
+      # milliseconds away from processing an in-flight SIGTERM. The
+      # documented deploy/watchdog flow is `kill && start-engine.sh`,
+      # and Node's signal handler can take 1–100 ms to run before
+      # server.close() actually stops accepting connections — a single
+      # probe in that window false-positives "healthy" then the engine
+      # dies behind us. [Codex round-4 P2-B]
+      log "engine pid $existing_pid responds healthy on /api/health (confirmed); nothing to do"
       exit 0
     else
       # Alive, ours, but not responding. Two situations collapse here:
@@ -177,9 +190,9 @@ fi
 # new child fail EADDRINUSE while probe_health hits the orphan and returns
 # 200, falsely marking startup successful with a dead-PID pointer.
 # [Codex round-3 P2]
-# `ss -ltn` lists TCP listeners; column 4 is the local address. Match the
-# port suffix preceded by ":" to cover both 127.0.0.1:port and [::]:port.
-if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE ":${ENGINE_PORT}\$"; then
+# `ss -ltnH "sport = :PORT"` filters by source port directly — robust against
+# ss column-ordering variations across versions; -H suppresses the header.
+if [ -n "$(ss -ltnH "sport = :${ENGINE_PORT}" 2>/dev/null)" ]; then
   die "another process is already bound to port ${ENGINE_PORT} (orphan engine?); refusing to spawn — kill it first"
 fi
 

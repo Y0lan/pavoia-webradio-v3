@@ -32,6 +32,9 @@ umask 077
 log() { printf '[start-engine] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
+# Accept "node" (Node 22) and any newer-Node thread-named variant such as
+# "node-MainThread" (Node 25+). Anything else is not our engine.
+is_node_comm() { case "$1" in node|node-*) return 0 ;; *) return 1 ;; esac; }
 
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
@@ -74,6 +77,8 @@ esac
 [ -x "$NODE_BIN" ] || die "node binary missing or not executable: $NODE_BIN (deploy must symlink mise Node 22.22.2 here, Req I)"
 [ -f "$ENGINE_ENTRY" ] || die "engine build artifact missing: $ENGINE_ENTRY (run 'npm run build' before starting)"
 command -v curl >/dev/null 2>&1 || die "curl not found on PATH (required for /api/health probes)"
+command -v ss >/dev/null 2>&1 || die "ss not found on PATH (required for orphan-listener pre-spawn check)"
+command -v ps >/dev/null 2>&1 || die "ps not found on PATH (required for PID ownership/identity checks)"
 
 mkdir -p "$LOG_DIR" "$RUN_DIR"
 
@@ -114,14 +119,23 @@ if [ -f "$PID_FILE" ]; then
     log "stale pid file (pid $existing_pid not alive); clearing"
     rm -f "$PID_FILE"
   else
-    # Defend against post-reboot PID reuse — if some unrelated process
-    # happens to hold the recorded PID number, it's not ours and the file
-    # is stale. UID match is good enough for a $HOME-stored pidfile under
-    # the engine's threat model.
+    # Defend against post-reboot PID reuse — same-user PID collisions are
+    # rare but real on a long-lived seedbox account. Two-pronged check:
+    #   1. UID match (cheap rule-out for cross-user reuse).
+    #   2. Process binary is `node` (rules out same-user reuse by other
+    #      long-running processes — shells, other node services, etc.).
+    # Without #2, an unrelated long-running same-user process holding the
+    # recorded PID would force the wrapper through the full drain wait then
+    # exit 1 "wedged," looping every watchdog tick until manual cleanup.
+    # [Codex round-3 P2]
     pid_uid="$(ps -o uid= -p "$existing_pid" 2>/dev/null | tr -d '[:space:]' || true)"
+    pid_comm="$(ps -o comm= -p "$existing_pid" 2>/dev/null | tr -d '[:space:]' || true)"
     our_uid="$(id -u)"
     if [ -z "$pid_uid" ] || [ "$pid_uid" != "$our_uid" ]; then
       log "pid $existing_pid alive but not owned by us (uid=${pid_uid:-?} vs ${our_uid}); treating as stale"
+      rm -f "$PID_FILE"
+    elif ! is_node_comm "$pid_comm"; then
+      log "pid $existing_pid alive but not a node process (comm=${pid_comm:-?}); treating as stale"
       rm -f "$PID_FILE"
     elif probe_health; then
       log "engine pid $existing_pid responds healthy on /api/health; nothing to do"
@@ -137,25 +151,36 @@ if [ -f "$PID_FILE" ]; then
       #       spawn over it (would orphan the wedged child) and exit 1 so
       #       the operator/watchdog escalates.
       log "engine pid $existing_pid alive but unresponsive on /api/health; waiting up to ${DRAIN_WAIT_SECS}s for drain"
+      drain_start=$(date +%s)
+      drain_deadline=$((drain_start + DRAIN_WAIT_SECS))
       drained="no"
-      deadline_tenths=$((DRAIN_WAIT_SECS * 2))
-      tenths=0
-      while [ "$tenths" -lt "$deadline_tenths" ]; do
+      while [ "$(date +%s)" -lt "$drain_deadline" ]; do
         if ! kill -0 "$existing_pid" 2>/dev/null; then
           drained="yes"
           break
         fi
         sleep 0.5
-        tenths=$((tenths + 1))
       done
+      drain_elapsed=$(($(date +%s) - drain_start))
       if [ "$drained" = "yes" ]; then
-        log "previous engine pid $existing_pid drained after $((tenths / 2))s; spawning fresh"
+        log "previous engine pid $existing_pid drained after ${drain_elapsed}s; spawning fresh"
         rm -f "$PID_FILE"
       else
-        die "engine pid $existing_pid alive and unresponsive after ${DRAIN_WAIT_SECS}s — wedged; refusing to spawn over it (kill it first, then retry)"
+        die "engine pid $existing_pid alive and unresponsive after ${drain_elapsed}s — wedged; refusing to spawn over it (kill it first, then retry)"
       fi
     fi
   fi
+fi
+
+# Refuse to spawn if anything is already bound to ENGINE_PORT — orphans from
+# a prior crashed wrapper or operator-spawned engines would otherwise let our
+# new child fail EADDRINUSE while probe_health hits the orphan and returns
+# 200, falsely marking startup successful with a dead-PID pointer.
+# [Codex round-3 P2]
+# `ss -ltn` lists TCP listeners; column 4 is the local address. Match the
+# port suffix preceded by ":" to cover both 127.0.0.1:port and [::]:port.
+if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE ":${ENGINE_PORT}\$"; then
+  die "another process is already bound to port ${ENGINE_PORT} (orphan engine?); refusing to spawn — kill it first"
 fi
 
 log "spawning engine: $NODE_BIN $ENGINE_ENTRY"
@@ -170,10 +195,13 @@ disown "$engine_pid" 2>/dev/null || true
 echo "$engine_pid" >"$PID_FILE"
 log "spawned engine pid $engine_pid; verifying /api/health (up to ${HEALTH_WAIT_SECS}s)"
 
+# Wall-clock deadline (not iteration counting) — each probe_health can block
+# up to curl --max-time 2, so an iteration counter would understate elapsed
+# time by up to 5x. Wall-clock makes the budget honest. [Codex round-3 P3]
+health_start=$(date +%s)
+health_deadline=$((health_start + HEALTH_WAIT_SECS))
 healthy="no"
-deadline_tenths=$((HEALTH_WAIT_SECS * 2))
-tenths=0
-while [ "$tenths" -lt "$deadline_tenths" ]; do
+while [ "$(date +%s)" -lt "$health_deadline" ]; do
   if ! kill -0 "$engine_pid" 2>/dev/null; then
     rm -f "$PID_FILE"
     die "engine pid $engine_pid exited during startup — check $LOG_FILE"
@@ -183,16 +211,16 @@ while [ "$tenths" -lt "$deadline_tenths" ]; do
     break
   fi
   sleep 0.5
-  tenths=$((tenths + 1))
 done
+health_elapsed=$(($(date +%s) - health_start))
 
 if [ "$healthy" != "yes" ]; then
-  log "engine pid $engine_pid did not become healthy within ${HEALTH_WAIT_SECS}s; killing"
+  log "engine pid $engine_pid did not become healthy within ${health_elapsed}s; killing"
   kill -TERM "$engine_pid" 2>/dev/null || true
   sleep 1
   kill -KILL "$engine_pid" 2>/dev/null || true
   rm -f "$PID_FILE"
-  die "engine failed to come up healthy in ${HEALTH_WAIT_SECS}s — check $LOG_FILE"
+  die "engine failed to come up healthy in ${health_elapsed}s — check $LOG_FILE"
 fi
 
-log "engine healthy in $((tenths / 2))s (pid $engine_pid); logs: $LOG_FILE"
+log "engine healthy in ${health_elapsed}s (pid $engine_pid); logs: $LOG_FILE"

@@ -1,0 +1,26 @@
+# Pavoia Webradio v3 — Whatbox crontab entries.
+#
+# Install (additive — preserves any other entries you already have):
+#   crontab -l > /tmp/cron.bak
+#   cat /tmp/cron.bak ~/webradio-v3/deploy/crontab.example | crontab -
+#   crontab -l | grep webradio-v3   # verify
+#
+# Or replace the entire crontab (DESTROYS ANY OTHER ENTRIES):
+#   crontab ~/webradio-v3/deploy/crontab.example
+#
+# Remove later:
+#   crontab -l | grep -v webradio-v3 | crontab -
+#
+# Watch the live decisions:
+#   tail -f ~/webradio-v3/logs/cron.log
+
+# Start the engine 10 s after every reboot. The sleep gives Plex Media Server
+# time to come up first (the engine fails fast if Plex isn't reachable on
+# boot, then the watchdog respawns it within ~3 minutes — but the 10 s lead
+# avoids the noise on the common case).
+@reboot sleep 10 && ~/webradio-v3/bin/start-engine.sh >>~/webradio-v3/logs/cron.log 2>&1
+
+# Probe /api/health every minute. Restarts on 3 consecutive HTTP 000 (Req J).
+# 5xx means alive-but-degraded and does NOT trigger restart — restart would
+# destroy diagnostic state.
+* * * * * ~/webradio-v3/bin/watchdog.sh >>~/webradio-v3/logs/cron.log 2>&1

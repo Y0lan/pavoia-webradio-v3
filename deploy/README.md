@@ -6,7 +6,7 @@ manager — just `cron + nohup + watchdog`, the pattern v1/v2 already use
 
 ## Layout on Whatbox
 
-```
+```text
 ~/webradio-v3/
 ├── apps/engine/dist/
 │   └── index.js              # built engine entry (npm run build)

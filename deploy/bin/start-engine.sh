@@ -35,20 +35,14 @@ is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 # Read /proc/$pid/cmdline as a space-joined string. Returns empty if the
 # pid no longer exists or proc isn't available.
 pid_cmdline() {
-  if [ -r "/proc/$1/cmdline" ]; then
-    tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null
-  fi
+  # `cat | tr` returns 0 with empty output if the proc file vanishes mid-call —
+  # avoids the [ -r ] / read TOCTOU window that could abort the script under
+  # `set -e`. [#15 item 3]
+  cat "/proc/$1/cmdline" 2>/dev/null | tr '\0' ' ' || true
 }
 
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
-# Wait budget for an in-flight engine to drain (graceful shutdown) before we
-# treat it as wedged. Engine's SHUTDOWN_TIMEOUT_MS is 15 s
-# (apps/engine/src/index.ts), so the default 20 s gives a small buffer.
-DRAIN_WAIT_SECS="${ENGINE_DRAIN_WAIT_SECS:-20}"
-# Wait budget for a freshly-spawned engine to start responding 2xx on
-# /api/health. Real bootstrap is ~1–5 s on Whatbox; 15 s is generous.
-HEALTH_WAIT_SECS="${ENGINE_HEALTH_WAIT_SECS:-15}"
 
 NODE_BIN="$RADIO_HOME/bin/node"
 ENGINE_ENTRY="$RADIO_HOME/apps/engine/dist/index.js"
@@ -66,6 +60,17 @@ set -a
 # shellcheck disable=SC1090  # path resolved at runtime, not lintable here
 . "$ENV_FILE"
 set +a
+
+# Read wait-knob env vars AFTER sourcing the env file — the operator's
+# overrides in $ENV_FILE need to take effect, not the bash environment at
+# script-start time. [#15 item 1]
+# Wait budget for an in-flight engine to drain (graceful shutdown) before
+# we treat it as wedged. Engine's SHUTDOWN_TIMEOUT_MS is 15 s
+# (apps/engine/src/index.ts), so the default 20 s gives a small buffer.
+DRAIN_WAIT_SECS="${ENGINE_DRAIN_WAIT_SECS:-20}"
+# Wait budget for a freshly-spawned engine to start responding 2xx on
+# /api/health. Real bootstrap is ~1–5 s on Whatbox; 15 s is generous.
+HEALTH_WAIT_SECS="${ENGINE_HEALTH_WAIT_SECS:-15}"
 
 # Validate the wait knobs before any arithmetic — a non-numeric value would
 # crash the script under `set -e` mid-loop, leaving an unclear failure state.
@@ -103,12 +108,14 @@ ENGINE_PORT="${ENGINE_PORT:-3001}"
 HEALTH_URL="http://127.0.0.1:${ENGINE_PORT}/api/health"
 
 # Returns 0 iff /api/health responds with a 2xx within 2 s. curl writes the
-# HTTP code to stdout; on connection refused / timeout it writes "000" so we
-# never need to interpret curl's exit code separately.
+# HTTP code via --write-out (including "000" on connection refused/timeout).
+# `|| true` keeps set -e from killing us on curl's non-zero exit. The fallback
+# is via parameter default, NOT `|| echo 000` after the pipe — that form
+# concatenates curl's "000" with the echo's "000" producing "000000".
 probe_health() {
   local code
-  code="$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' "$HEALTH_URL" 2>/dev/null || echo 000)"
-  case "$code" in
+  code="$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' "$HEALTH_URL" 2>/dev/null || true)"
+  case "${code:-000}" in
     2*) return 0 ;;
     *)  return 1 ;;
   esac

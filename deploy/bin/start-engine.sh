@@ -35,20 +35,14 @@ is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 # Read /proc/$pid/cmdline as a space-joined string. Returns empty if the
 # pid no longer exists or proc isn't available.
 pid_cmdline() {
-  if [ -r "/proc/$1/cmdline" ]; then
-    tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null
-  fi
+  # `cat | tr` returns 0 with empty output if the proc file vanishes mid-call —
+  # avoids the [ -r ] / read TOCTOU window that could abort the script under
+  # `set -e`. [#15 item 3]
+  cat "/proc/$1/cmdline" 2>/dev/null | tr '\0' ' ' || true
 }
 
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
-# Wait budget for an in-flight engine to drain (graceful shutdown) before we
-# treat it as wedged. Engine's SHUTDOWN_TIMEOUT_MS is 15 s
-# (apps/engine/src/index.ts), so the default 20 s gives a small buffer.
-DRAIN_WAIT_SECS="${ENGINE_DRAIN_WAIT_SECS:-20}"
-# Wait budget for a freshly-spawned engine to start responding 2xx on
-# /api/health. Real bootstrap is ~1–5 s on Whatbox; 15 s is generous.
-HEALTH_WAIT_SECS="${ENGINE_HEALTH_WAIT_SECS:-15}"
 
 NODE_BIN="$RADIO_HOME/bin/node"
 ENGINE_ENTRY="$RADIO_HOME/apps/engine/dist/index.js"
@@ -66,6 +60,17 @@ set -a
 # shellcheck disable=SC1090  # path resolved at runtime, not lintable here
 . "$ENV_FILE"
 set +a
+
+# Read wait-knob env vars AFTER sourcing the env file — the operator's
+# overrides in $ENV_FILE need to take effect, not the bash environment at
+# script-start time. [#15 item 1]
+# Wait budget for an in-flight engine to drain (graceful shutdown) before
+# we treat it as wedged. Engine's SHUTDOWN_TIMEOUT_MS is 15 s
+# (apps/engine/src/index.ts), so the default 20 s gives a small buffer.
+DRAIN_WAIT_SECS="${ENGINE_DRAIN_WAIT_SECS:-20}"
+# Wait budget for a freshly-spawned engine to start responding 2xx on
+# /api/health. Real bootstrap is ~1–5 s on Whatbox; 15 s is generous.
+HEALTH_WAIT_SECS="${ENGINE_HEALTH_WAIT_SECS:-15}"
 
 # Validate the wait knobs before any arithmetic — a non-numeric value would
 # crash the script under `set -e` mid-loop, leaving an unclear failure state.

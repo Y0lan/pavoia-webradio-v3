@@ -108,12 +108,14 @@ ENGINE_PORT="${ENGINE_PORT:-3001}"
 HEALTH_URL="http://127.0.0.1:${ENGINE_PORT}/api/health"
 
 # Returns 0 iff /api/health responds with a 2xx within 2 s. curl writes the
-# HTTP code to stdout; on connection refused / timeout it writes "000" so we
-# never need to interpret curl's exit code separately.
+# HTTP code via --write-out (including "000" on connection refused/timeout).
+# `|| true` keeps set -e from killing us on curl's non-zero exit. The fallback
+# is via parameter default, NOT `|| echo 000` after the pipe — that form
+# concatenates curl's "000" with the echo's "000" producing "000000".
 probe_health() {
   local code
-  code="$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' "$HEALTH_URL" 2>/dev/null || echo 000)"
-  case "$code" in
+  code="$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' "$HEALTH_URL" 2>/dev/null || true)"
+  case "${code:-000}" in
     2*) return 0 ;;
     *)  return 1 ;;
   esac

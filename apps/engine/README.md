@@ -137,7 +137,7 @@ Thrown exceptions inside a handler are caught by `app.onError`. Response body ne
 Two axes matter for the watchdog contract (Req J): **connection failure** (HTTP 000) triggers a restart after three consecutive ticks; **5xx** means alive-but-degraded and must *not* trigger a restart (so diagnostic state is preserved).
 
 - **Bind failure** (e.g. `EADDRINUSE`) → `server.on('error')` logs `[engine] server error: …`, `process.exit(1)`. No listener → next watchdog tick sees `HTTP 000`. Three ticks → respawn. ✔ Correct restart.
-- **`SIGTERM` / `SIGINT` / `SIGHUP`** → `server.close()` stops accepting new connections, waits up to **5 s** for in-flight requests to finish, `process.exit(0)`. After 5 s we hard-exit `1`. Idempotent: a second signal while already shutting down is ignored.
+- **`SIGTERM` / `SIGINT` / `SIGHUP`** → `server.close()` stops accepting new connections, every supervisor's `stop()` runs in parallel, then `process.exit(0)`. The whole shutdown is bounded by `SHUTDOWN_TIMEOUT_MS = 15_000` (5 s per-supervisor ffmpeg `SIGTERM → SIGKILL` plus Hono's in-flight drain). If we hit the ceiling, hard-exit `1`. Idempotent: a second signal while already shutting down is ignored.
 - **Thrown exception inside a Hono route handler** → caught by `app.onError`, returns `500 {"error":"internal_server_error"}`. Watchdog sees 2xx-or-5xx (not `000`), does **not** restart. Server stays alive so the next request can succeed and logs retain context. ✔ Matches Req J.
 - **`uncaughtException` / `unhandledRejection`** (bugs outside a route — e.g. in the stage supervisor once it lands) → log and `process.exit(1)`. These signal genuinely unknown state; continuing would be unsafe.
 

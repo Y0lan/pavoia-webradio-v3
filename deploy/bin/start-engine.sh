@@ -34,21 +34,25 @@ die() { log "ERROR: $*"; exit 1; }
 is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 # Read /proc/$pid/cmdline as a space-joined string. Returns empty if the
 # pid no longer exists or proc isn't available.
-pid_cmdline() {
-  # `cat | tr` returns 0 with empty output if the proc file vanishes mid-call —
-  # avoids the [ -r ] / read TOCTOU window that could abort the script under
-  # `set -e`. [#15 item 3]
-  cat "/proc/$1/cmdline" 2>/dev/null | tr '\0' ' ' || true
-}
-# Returns 0 iff the cmdline string represents OUR engine: argv[0] basenames
-# to "node" AND $ENGINE_ENTRY appears as a complete argv token. The previous
-# substring match (`*" $entry "*`) false-positived on commands like
-# `vim apps/engine/dist/index.js` where the path is just an argument to a
-# non-node program. [#15 item 6]
+# Returns 0 iff /proc/<pid>/cmdline represents OUR engine: argv[0] basenames
+# to "node" AND $entry appears as a complete argv token.
+#
+# Reads /proc directly with NUL-aware splitting via `mapfile -d ''` so that
+# argv tokens containing whitespace are preserved — the previous version
+# converted NUL→space and word-split, which broke for ENGINE_ENTRY paths
+# under a RADIO_HOME containing whitespace (e.g. '/srv/pavoia radio').
+# [#15 item 6, Codex round-1 P2 on PR #18]
+#
+# Original substring match was insufficient: `*" $entry "*` matched
+# `vim apps/engine/dist/index.js` because the path appeared as an argv to
+# a non-node program. The argv[0]=node + entry-as-token check fixes that.
 is_our_engine() {
-  local cmdline="$1" entry="$2"
-  # shellcheck disable=SC2206  # we want word-splitting on the cmdline
-  local argv=( $cmdline )
+  local pid="$1" entry="$2"
+  local -a argv
+  # mapfile -d '' splits on NUL (bash 4.4+, available on all modern Linux).
+  # 2>/dev/null + || return 1 covers the TOCTOU window where the pid exits
+  # between the caller's kill -0 check and our open here.
+  mapfile -d '' argv < "/proc/$pid/cmdline" 2>/dev/null || return 1
   [ "${#argv[@]}" -ge 2 ] || return 1
   [ "${argv[0]##*/}" = "node" ] || return 1
   local i
@@ -175,12 +179,11 @@ if [ -f "$PID_FILE" ]; then
     # the wrapper through the full drain wait then exit 1 "wedged," looping
     # every watchdog tick until manual cleanup. [Codex round-3 P2]
     pid_uid="$(ps -o uid= -p "$existing_pid" 2>/dev/null | tr -d '[:space:]' || true)"
-    cmdline="$(pid_cmdline "$existing_pid")"
     our_uid="$(id -u)"
     if [ -z "$pid_uid" ] || [ "$pid_uid" != "$our_uid" ]; then
       log "pid $existing_pid alive but not owned by us (uid=${pid_uid:-?} vs ${our_uid}); treating as stale"
       rm -f "$PID_FILE"
-    elif ! is_our_engine "$cmdline" "$ENGINE_ENTRY"; then
+    elif ! is_our_engine "$existing_pid" "$ENGINE_ENTRY"; then
       log "pid $existing_pid alive but cmdline doesn't match our engine (argv[0] != node OR $ENGINE_ENTRY not an argv token); treating as stale"
       rm -f "$PID_FILE"
     elif probe_health && { sleep 0.25; probe_health; }; then
@@ -275,8 +278,7 @@ if [ "$healthy" != "yes" ]; then
   # same-user process during the SIGTERM grace window, don't kill it.
   # [#15 item 4]
   if kill -0 "$engine_pid" 2>/dev/null; then
-    cmdline_now="$(pid_cmdline "$engine_pid")"
-    if is_our_engine "$cmdline_now" "$ENGINE_ENTRY"; then
+    if is_our_engine "$engine_pid" "$ENGINE_ENTRY"; then
       kill -KILL "$engine_pid" 2>/dev/null || true
     else
       log "pid $engine_pid no longer matches our engine cmdline; skipping SIGKILL"

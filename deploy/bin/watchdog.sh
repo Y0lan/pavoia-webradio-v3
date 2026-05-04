@@ -35,18 +35,25 @@ umask 077
 log() { printf '[watchdog] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
-pid_cmdline() {
-  cat "/proc/$1/cmdline" 2>/dev/null | tr '\0' ' ' || true
-}
-# Returns 0 iff the cmdline string represents OUR engine: argv[0] basenames
-# to "node" AND $ENGINE_ENTRY appears as a complete argv token. The previous
-# substring match (`*" $entry "*`) false-positived on commands like
-# `vim apps/engine/dist/index.js` where the path is just an argument to a
-# non-node program. [#15 item 6]
+# Returns 0 iff /proc/<pid>/cmdline represents OUR engine: argv[0] basenames
+# to "node" AND $entry appears as a complete argv token.
+#
+# Reads /proc directly with NUL-aware splitting via `mapfile -d ''` so that
+# argv tokens containing whitespace are preserved — the previous version
+# converted NUL→space and word-split, which broke for ENGINE_ENTRY paths
+# under a RADIO_HOME containing whitespace (e.g. '/srv/pavoia radio').
+# [#15 item 6, Codex round-1 P2 on PR #18]
+#
+# Original substring match was insufficient: `*" $entry "*` matched
+# `vim apps/engine/dist/index.js` because the path appeared as an argv to
+# a non-node program. The argv[0]=node + entry-as-token check fixes that.
 is_our_engine() {
-  local cmdline="$1" entry="$2"
-  # shellcheck disable=SC2206  # we want word-splitting on the cmdline
-  local argv=( $cmdline )
+  local pid="$1" entry="$2"
+  local -a argv
+  # mapfile -d '' splits on NUL (bash 4.4+, available on all modern Linux).
+  # 2>/dev/null + || return 1 covers the TOCTOU window where the pid exits
+  # between the caller's kill -0 check and our open here.
+  mapfile -d '' argv < "/proc/$pid/cmdline" 2>/dev/null || return 1
   [ "${#argv[@]}" -ge 2 ] || return 1
   [ "${argv[0]##*/}" = "node" ] || return 1
   local i
@@ -204,8 +211,7 @@ wait_pid_exit() {
 }
 
 if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
-  cmdline="$(pid_cmdline "$existing_pid")"
-  if is_our_engine "$cmdline" "$ENGINE_ENTRY"; then
+  if is_our_engine "$existing_pid" "$ENGINE_ENTRY"; then
     log "sending SIGTERM to engine pid $existing_pid"
     kill -TERM "$existing_pid" 2>/dev/null || true
     if wait_pid_exit "$existing_pid" "$TERM_WAIT_SECS"; then
@@ -214,8 +220,7 @@ if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
       log "engine pid $existing_pid did not exit within ${TERM_WAIT_SECS}s — escalating to SIGKILL"
       # Re-check cmdline before SIGKILL — if the PID was recycled to
       # something else during our wait, don't kill the unrelated process.
-      cmdline_now="$(pid_cmdline "$existing_pid")"
-      if is_our_engine "$cmdline_now" "$ENGINE_ENTRY"; then
+      if is_our_engine "$existing_pid" "$ENGINE_ENTRY"; then
         kill -KILL "$existing_pid" 2>/dev/null || true
         if ! wait_pid_exit "$existing_pid" "$KILL_WAIT_SECS"; then
           die "engine pid $existing_pid still alive after SIGKILL; aborting restart (next tick will retry)"

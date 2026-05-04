@@ -40,6 +40,23 @@ pid_cmdline() {
   # `set -e`. [#15 item 3]
   cat "/proc/$1/cmdline" 2>/dev/null | tr '\0' ' ' || true
 }
+# Returns 0 iff the cmdline string represents OUR engine: argv[0] basenames
+# to "node" AND $ENGINE_ENTRY appears as a complete argv token. The previous
+# substring match (`*" $entry "*`) false-positived on commands like
+# `vim apps/engine/dist/index.js` where the path is just an argument to a
+# non-node program. [#15 item 6]
+is_our_engine() {
+  local cmdline="$1" entry="$2"
+  # shellcheck disable=SC2206  # we want word-splitting on the cmdline
+  local argv=( $cmdline )
+  [ "${#argv[@]}" -ge 2 ] || return 1
+  [ "${argv[0]##*/}" = "node" ] || return 1
+  local i
+  for ((i=1; i<${#argv[@]}; i++)); do
+    [ "${argv[i]}" = "$entry" ] && return 0
+  done
+  return 1
+}
 
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
@@ -99,12 +116,28 @@ mkdir -p "$LOG_DIR" "$RUN_DIR"
 # engine is still alive. That keeps the real lock semantics tight on
 # "wrapper in flight" instead of accidentally widening to "engine alive."
 exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-  log "another start-engine.sh holds the lock ($LOCK_FILE); nothing to do"
-  exit 0
+# Distinguish lock contention (flock exit 1, idempotent no-op) from any
+# other flock failure (kernel rejected, fd issues — die loudly so cron
+# doesn't silently report success on a wrapper that did nothing). [#15 item 2]
+if flock -n 9; then
+  : # acquired
+else
+  rc=$?
+  case "$rc" in
+    1) log "another start-engine.sh holds the lock ($LOCK_FILE); nothing to do"; exit 0 ;;
+    *) die "flock failed unexpectedly (exit=$rc)" ;;
+  esac
 fi
 
 ENGINE_PORT="${ENGINE_PORT:-3001}"
+# Validate ENGINE_PORT before constructing the health URL or ss filter — a
+# non-numeric or out-of-range value would otherwise produce cryptic curl/ss
+# errors. The engine's own loadConfig validates again at boot, but failing
+# here gives the operator the same clear punch-list error format. [#15 item 5]
+case "$ENGINE_PORT" in
+  ''|*[!0-9]*) die "ENGINE_PORT must be a positive integer, got '$ENGINE_PORT'" ;;
+esac
+[ "$ENGINE_PORT" -ge 1 ] && [ "$ENGINE_PORT" -le 65535 ] || die "ENGINE_PORT out of range [1..65535], got $ENGINE_PORT"
 HEALTH_URL="http://127.0.0.1:${ENGINE_PORT}/api/health"
 
 # Returns 0 iff /api/health responds with a 2xx within 2 s. curl writes the
@@ -147,8 +180,8 @@ if [ -f "$PID_FILE" ]; then
     if [ -z "$pid_uid" ] || [ "$pid_uid" != "$our_uid" ]; then
       log "pid $existing_pid alive but not owned by us (uid=${pid_uid:-?} vs ${our_uid}); treating as stale"
       rm -f "$PID_FILE"
-    elif ! [[ " $cmdline " == *" $ENGINE_ENTRY "* ]]; then
-      log "pid $existing_pid alive but cmdline does not include $ENGINE_ENTRY (probably another node service); treating as stale"
+    elif ! is_our_engine "$cmdline" "$ENGINE_ENTRY"; then
+      log "pid $existing_pid alive but cmdline doesn't match our engine (argv[0] != node OR $ENGINE_ENTRY not an argv token); treating as stale"
       rm -f "$PID_FILE"
     elif probe_health && { sleep 0.25; probe_health; }; then
       # Two probes 250 ms apart confirm the engine isn't just a few
@@ -238,7 +271,17 @@ if [ "$healthy" != "yes" ]; then
   log "engine pid $engine_pid did not become healthy within ${health_elapsed}s; killing"
   kill -TERM "$engine_pid" 2>/dev/null || true
   sleep 1
-  kill -KILL "$engine_pid" 2>/dev/null || true
+  # Re-check identity before SIGKILL — if PID was recycled to an unrelated
+  # same-user process during the SIGTERM grace window, don't kill it.
+  # [#15 item 4]
+  if kill -0 "$engine_pid" 2>/dev/null; then
+    cmdline_now="$(pid_cmdline "$engine_pid")"
+    if is_our_engine "$cmdline_now" "$ENGINE_ENTRY"; then
+      kill -KILL "$engine_pid" 2>/dev/null || true
+    else
+      log "pid $engine_pid no longer matches our engine cmdline; skipping SIGKILL"
+    fi
+  fi
   rm -f "$PID_FILE"
   die "engine failed to come up healthy in ${health_elapsed}s — check $LOG_FILE"
 fi

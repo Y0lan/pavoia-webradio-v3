@@ -38,6 +38,23 @@ is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 pid_cmdline() {
   cat "/proc/$1/cmdline" 2>/dev/null | tr '\0' ' ' || true
 }
+# Returns 0 iff the cmdline string represents OUR engine: argv[0] basenames
+# to "node" AND $ENGINE_ENTRY appears as a complete argv token. The previous
+# substring match (`*" $entry "*`) false-positived on commands like
+# `vim apps/engine/dist/index.js` where the path is just an argument to a
+# non-node program. [#15 item 6]
+is_our_engine() {
+  local cmdline="$1" entry="$2"
+  # shellcheck disable=SC2206  # we want word-splitting on the cmdline
+  local argv=( $cmdline )
+  [ "${#argv[@]}" -ge 2 ] || return 1
+  [ "${argv[0]##*/}" = "node" ] || return 1
+  local i
+  for ((i=1; i<${#argv[@]}; i++)); do
+    [ "${argv[i]}" = "$entry" ] && return 0
+  done
+  return 1
+}
 
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
@@ -188,7 +205,7 @@ wait_pid_exit() {
 
 if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
   cmdline="$(pid_cmdline "$existing_pid")"
-  if [[ " $cmdline " == *" $ENGINE_ENTRY "* ]]; then
+  if is_our_engine "$cmdline" "$ENGINE_ENTRY"; then
     log "sending SIGTERM to engine pid $existing_pid"
     kill -TERM "$existing_pid" 2>/dev/null || true
     if wait_pid_exit "$existing_pid" "$TERM_WAIT_SECS"; then
@@ -198,7 +215,7 @@ if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
       # Re-check cmdline before SIGKILL — if the PID was recycled to
       # something else during our wait, don't kill the unrelated process.
       cmdline_now="$(pid_cmdline "$existing_pid")"
-      if [[ " $cmdline_now " == *" $ENGINE_ENTRY "* ]]; then
+      if is_our_engine "$cmdline_now" "$ENGINE_ENTRY"; then
         kill -KILL "$existing_pid" 2>/dev/null || true
         if ! wait_pid_exit "$existing_pid" "$KILL_WAIT_SECS"; then
           die "engine pid $existing_pid still alive after SIGKILL; aborting restart (next tick will retry)"
@@ -209,7 +226,7 @@ if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
       fi
     fi
   else
-    log "pid $existing_pid alive but cmdline does not include $ENGINE_ENTRY; not killing (start-engine.sh will sort it out)"
+    log "pid $existing_pid alive but cmdline doesn't match our engine (argv[0] != node OR $ENGINE_ENTRY not an argv token); not killing (start-engine.sh will sort it out)"
   fi
 fi
 

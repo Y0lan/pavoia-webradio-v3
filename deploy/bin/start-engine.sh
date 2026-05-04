@@ -32,8 +32,6 @@ umask 077
 log() { printf '[start-engine] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 is_pid() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
-# Read /proc/$pid/cmdline as a space-joined string. Returns empty if the
-# pid no longer exists or proc isn't available.
 # Returns 0 iff /proc/<pid>/cmdline represents OUR engine: argv[0] basenames
 # to "node" AND $entry appears as a complete argv token.
 #

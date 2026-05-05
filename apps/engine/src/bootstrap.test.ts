@@ -275,6 +275,7 @@ describe("bootstrap — startup", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: (line) => logged.push(line),
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(result.registry.size, 2, "both stages registered");

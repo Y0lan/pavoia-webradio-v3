@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -527,6 +528,71 @@ describe("cleanupOrphanFfmpegs", () => {
     });
     assert.equal(result.attempted, 1);
     assert.equal(result.killed, 1);
+  });
+
+  it("re-validates identity before each signal: skips a pid whose cmdline was recycled mid-run (TOCTOU)", async () => {
+    // Both pids match at scan time. While processing the SIGTERM
+    // for pid 2001, the killImpl mutates pid 2002's cmdline to
+    // simulate Linux recycling 2002 into an unrelated process. The
+    // re-validation pass before SIGTERM(2002) MUST notice and skip,
+    // so 2002 does not receive a signal.
+    await writeCmdline(
+      2001,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/dev/shm/1008/radio-hls/opening/index.m3u8",
+    );
+    await writeCmdline(
+      2002,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/dev/shm/1008/radio-hls/closing/index.m3u8",
+    );
+    const fake = fakeKill([2001, 2002]);
+    const wrappedKill = (pid: number, signal: NodeJS.Signals | 0) => {
+      if (signal === "SIGTERM" && pid === 2001) {
+        // Mutate 2002's cmdline synchronously so the re-validation
+        // for 2002 (which hasn't run yet) sees recycled-state.
+        writeFileSync(
+          path.join(proc, "2002", "cmdline"),
+          ["/usr/bin/cat", "/etc/hostname"].join("\0"),
+        );
+      }
+      fake.killImpl(pid, signal);
+    };
+    const result = await cleanupOrphanFfmpegs({
+      hlsRoot: "/dev/shm/1008/radio-hls",
+      procRoot: proc,
+      killImpl: wrappedKill,
+      // 10ms keeps the poll loop short (2002 stays "alive" since
+      // we only mutated its cmdline, not its process state).
+      termWaitMs: 10,
+      delayMs: async () => {},
+    });
+
+    const sigtermPids = fake.signals
+      .filter((s) => s.signal === "SIGTERM")
+      .map((s) => s.pid);
+    assert.deepEqual(
+      sigtermPids,
+      [2001],
+      "SIGTERM must be sent only to 2001; 2002's recycled cmdline should skip it",
+    );
+    const sigkillPids = fake.signals
+      .filter((s) => s.signal === "SIGKILL")
+      .map((s) => s.pid);
+    assert.deepEqual(
+      sigkillPids,
+      [],
+      "SIGKILL must NOT fire for 2002 either — re-validate gates both passes",
+    );
+    // attempted is the scan count (set before re-validation), so
+    // both pids count. killed reflects what was actually killed:
+    // 2001 was killed by SIGTERM, 2002 was skipped (no signal).
+    assert.equal(result.attempted, 2);
+    assert.equal(result.killed, 1, "only 2001 should be tallied as killed");
   });
 
   it("tolerates a trailing slash in the configured hlsRoot", async () => {

@@ -156,9 +156,63 @@ function isAlive(
  *   - non-ffmpeg argv[0]
  *   - cmdlines that don't mention hlsRoot
  */
+/**
+ * Returns true iff `pid` is, at this instant, an ffmpeg process whose
+ * argv0 basename is "ffmpeg", whose argv references hlsRoot, and
+ * whose PPID is 1 (true orphan).
+ *
+ * Used both for the initial scan AND for re-validation immediately
+ * before each kill — defending against PID reuse between scan and
+ * signal. If the matched pid exited between the two reads and Linux
+ * recycled it for an unrelated process, this returns false and we
+ * skip the kill.
+ */
+async function matchesOrphanFfmpeg(
+  procRoot: string,
+  pid: number,
+  normalizedRoot: string,
+): Promise<boolean> {
+  let raw: Buffer;
+  try {
+    raw = await readFile(path.join(procRoot, String(pid), "cmdline"));
+  } catch {
+    // Process exited or unreadable. Not our concern.
+    return false;
+  }
+  if (raw.length === 0) return false;
+
+  // /proc/<pid>/cmdline is the process argv joined by NUL bytes.
+  // The buffer may end with a trailing NUL (some kernels) or not.
+  // Filter empty splits to handle either case.
+  const argv = raw
+    .toString("utf8")
+    .split("\0")
+    .filter((s) => s.length > 0);
+  const [argv0] = argv;
+  if (argv0 === undefined) return false;
+
+  if (!FFMPEG_BASENAMES.has(path.basename(argv0))) return false;
+  if (!argv.some((arg) => argIsUnderHlsRoot(arg, normalizedRoot))) {
+    return false;
+  }
+
+  // Only reap true orphans: a previous-engine ffmpeg child whose
+  // parent died and got reparented to init. If PPID is anything
+  // else (a live engine, a debugger holding it, a manual run), we
+  // must NOT reap — that's somebody else's process.
+  //
+  // Why this works in production: when our engine dies (kill -9,
+  // OOM, panic), its ffmpeg children are reparented to init by the
+  // kernel synchronously at parent exit. By the time the watchdog
+  // calls start-engine.sh and the new engine boots, the orphans
+  // already have PPID=1.
+  const ppid = await readPpid(procRoot, pid);
+  return ppid === 1;
+}
+
 async function scanForOrphans(
   procRoot: string,
-  hlsRoot: string,
+  normalizedRoot: string,
 ): Promise<number[]> {
   let entries: string[];
   try {
@@ -171,59 +225,14 @@ async function scanForOrphans(
 
   const matches: number[] = [];
   const ownPid = process.pid;
-  // Canonicalize hlsRoot once. ffmpeg arg paths come from
-  // path.join(config.hlsRoot, stage.id, ...) in the supervisor, so
-  // matching against a canonicalized root is consistent with how the
-  // engine produces those paths.
-  const normalizedRoot = path.resolve(hlsRoot);
 
   for (const entry of entries) {
     if (!PROC_PID_PATTERN.test(entry)) continue;
     const pid = Number(entry);
     if (pid === ownPid) continue;
-
-    let raw: Buffer;
-    try {
-      raw = await readFile(path.join(procRoot, entry, "cmdline"));
-    } catch {
-      // Process exited between readdir and readFile (race), or
-      // we don't have permission (EACCES on shared hosts under a
-      // hidepid mount). Skip — not our concern.
-      continue;
+    if (await matchesOrphanFfmpeg(procRoot, pid, normalizedRoot)) {
+      matches.push(pid);
     }
-    if (raw.length === 0) continue;
-
-    // /proc/<pid>/cmdline is the process argv joined by NUL bytes.
-    // The buffer may end with a trailing NUL (some kernels) or not.
-    // Filter empty splits to handle either case.
-    const argv = raw
-      .toString("utf8")
-      .split("\0")
-      .filter((s) => s.length > 0);
-    const [argv0] = argv;
-    if (argv0 === undefined) continue;
-
-    const argv0Basename = path.basename(argv0);
-    if (!FFMPEG_BASENAMES.has(argv0Basename)) continue;
-
-    if (!argv.some((arg) => argIsUnderHlsRoot(arg, normalizedRoot))) {
-      continue;
-    }
-
-    // Only reap true orphans: a previous-engine ffmpeg child whose
-    // parent died and got reparented to init. If PPID is anything
-    // else (a live engine, a debugger holding it, a manual run), we
-    // must NOT reap — that's somebody else's process.
-    //
-    // Why this works in production: when our engine dies (kill -9,
-    // OOM, panic), its ffmpeg children are reparented to init by the
-    // kernel synchronously at parent exit. By the time the watchdog
-    // calls start-engine.sh and the new engine boots, the orphans
-    // already have PPID=1.
-    const ppid = await readPpid(procRoot, pid);
-    if (ppid !== 1) continue;
-
-    matches.push(pid);
   }
 
   return matches;
@@ -246,7 +255,13 @@ export async function cleanupOrphanFfmpegs(
     delayMs = defaultDelay,
   } = opts;
 
-  const matches = await scanForOrphans(procRoot, hlsRoot);
+  // Canonicalize hlsRoot once. ffmpeg arg paths come from
+  // path.join(config.hlsRoot, stage.id, ...) in the supervisor, so
+  // matching against a canonicalized root is consistent with how the
+  // engine produces those paths.
+  const normalizedRoot = path.resolve(hlsRoot);
+
+  const matches = await scanForOrphans(procRoot, normalizedRoot);
   if (matches.length === 0) {
     return { killed: 0, attempted: 0 };
   }
@@ -256,6 +271,13 @@ export async function cleanupOrphanFfmpegs(
   );
 
   for (const pid of matches) {
+    // PID-reuse TOCTOU defense: re-validate identity immediately
+    // before signaling. If the pid exited between scan and now and
+    // Linux recycled it for an unrelated process, we'd otherwise
+    // signal the wrong workload.
+    if (!(await matchesOrphanFfmpeg(procRoot, pid, normalizedRoot))) {
+      continue;
+    }
     try {
       killImpl(pid, "SIGTERM");
     } catch (err) {
@@ -286,6 +308,11 @@ export async function cleanupOrphanFfmpegs(
   let killed = 0;
   for (const pid of matches) {
     if (isAlive(pid, killImpl)) {
+      // Same TOCTOU defense as the SIGTERM pass: re-validate before
+      // SIGKILL in case the pid was recycled into something else.
+      if (!(await matchesOrphanFfmpeg(procRoot, pid, normalizedRoot))) {
+        continue;
+      }
       try {
         killImpl(pid, "SIGKILL");
         killed++;

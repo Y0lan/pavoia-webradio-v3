@@ -64,16 +64,40 @@ const PROC_PID_PATTERN = /^\d+$/;
  *   hlsRoot=/dev/shm/1008/radio-hls
  *   arg=/dev/shm/1008/radio-hls-OTHER/seg.ts
  * which we must NOT reap.
+ *
+ * `hlsRoot` is canonicalized via path.resolve() so an env value with
+ * `..`, `.`, or repeated separators still matches ffmpeg argv produced
+ * via path.join(). The arg side is left raw — ffmpeg writes back what
+ * we passed it via path.join(), so the canonical-vs-canonical compare
+ * is the right one.
  */
-function argIsUnderHlsRoot(arg: string, hlsRoot: string): boolean {
-  // Strip a trailing separator from hlsRoot so the comparison is
-  // canonical regardless of how the operator wrote the env value.
-  const root =
-    hlsRoot.endsWith(path.sep) && hlsRoot.length > 1
-      ? hlsRoot.slice(0, -1)
-      : hlsRoot;
-  if (arg === root) return true;
-  return arg.startsWith(root + path.sep);
+function argIsUnderHlsRoot(arg: string, normalizedRoot: string): boolean {
+  if (arg === normalizedRoot) return true;
+  return arg.startsWith(normalizedRoot + path.sep);
+}
+
+/**
+ * Read `PPid` from /proc/<pid>/status. Returns null when the file is
+ * unreadable (process exited, EACCES on hidepid mounts) or the line
+ * is missing — callers treat null as "skip, can't verify orphan
+ * status".
+ */
+async function readPpid(
+  procRoot: string,
+  pid: number,
+): Promise<number | null> {
+  let raw: string;
+  try {
+    raw = (
+      await readFile(path.join(procRoot, String(pid), "status"))
+    ).toString("utf8");
+  } catch {
+    return null;
+  }
+  const m = raw.match(/^PPid:\s+(\d+)/m);
+  if (!m) return null;
+  const parsed = Number(m[1]);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /**
@@ -147,6 +171,11 @@ async function scanForOrphans(
 
   const matches: number[] = [];
   const ownPid = process.pid;
+  // Canonicalize hlsRoot once. ffmpeg arg paths come from
+  // path.join(config.hlsRoot, stage.id, ...) in the supervisor, so
+  // matching against a canonicalized root is consistent with how the
+  // engine produces those paths.
+  const normalizedRoot = path.resolve(hlsRoot);
 
   for (const entry of entries) {
     if (!PROC_PID_PATTERN.test(entry)) continue;
@@ -177,9 +206,24 @@ async function scanForOrphans(
     const argv0Basename = path.basename(argv0);
     if (!FFMPEG_BASENAMES.has(argv0Basename)) continue;
 
-    if (argv.some((arg) => argIsUnderHlsRoot(arg, hlsRoot))) {
-      matches.push(pid);
+    if (!argv.some((arg) => argIsUnderHlsRoot(arg, normalizedRoot))) {
+      continue;
     }
+
+    // Only reap true orphans: a previous-engine ffmpeg child whose
+    // parent died and got reparented to init. If PPID is anything
+    // else (a live engine, a debugger holding it, a manual run), we
+    // must NOT reap — that's somebody else's process.
+    //
+    // Why this works in production: when our engine dies (kill -9,
+    // OOM, panic), its ffmpeg children are reparented to init by the
+    // kernel synchronously at parent exit. By the time the watchdog
+    // calls start-engine.sh and the new engine boots, the orphans
+    // already have PPID=1.
+    const ppid = await readPpid(procRoot, pid);
+    if (ppid !== 1) continue;
+
+    matches.push(pid);
   }
 
   return matches;

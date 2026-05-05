@@ -67,11 +67,28 @@ describe("cleanupOrphanFfmpegs", () => {
     await rm(proc, { recursive: true, force: true });
   });
 
-  /** Write a fake /proc/<pid>/cmdline with NUL-separated argv. */
+  /** Write a fake /proc/<pid>/cmdline AND /proc/<pid>/status with
+   *  PPid: 1 (i.e. orphan). Tests that need a non-orphan parent
+   *  should override status via writeStatus(). */
   async function writeCmdline(pid: number, ...argv: string[]): Promise<void> {
     const dir = path.join(proc, String(pid));
     await mkdir(dir);
     await writeFile(path.join(dir, "cmdline"), argv.join("\0"));
+    // Default to "true orphan" (PPID=1) so existing matching tests
+    // pass without extra setup.
+    await writeFile(
+      path.join(dir, "status"),
+      `Name:\tffmpeg\nPid:\t${pid}\nPPid:\t1\nUid:\t1000\t1000\t1000\t1000\n`,
+    );
+  }
+
+  /** Overwrite /proc/<pid>/status with a custom PPid (used by tests
+   *  that probe the orphan ownership guard). */
+  async function writeStatus(pid: number, ppid: number): Promise<void> {
+    await writeFile(
+      path.join(proc, String(pid), "status"),
+      `Name:\tffmpeg\nPid:\t${pid}\nPPid:\t${ppid}\nUid:\t1000\t1000\t1000\t1000\n`,
+    );
   }
 
   /** Make /proc/<pid>/ exist but cmdline unreadable (EACCES sim via missing file). */
@@ -442,6 +459,76 @@ describe("cleanupOrphanFfmpegs", () => {
     assert.equal(result.killed, 1);
   });
 
+  it("skips a process whose PPID is not 1 (live parent — not an orphan)", async () => {
+    // Defensive: a same-user ffmpeg supervised by another live engine
+    // (or a debugger holding it) has PPID != 1. Reaping it would be
+    // a friendly-fire bug. Codex flagged this on PR #21.
+    await writeCmdline(
+      1601,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/dev/shm/1008/radio-hls/opening/index.m3u8",
+    );
+    await writeStatus(1601, 4242); // some live parent pid
+    const fake = fakeKill([1601]);
+    const result = await cleanupOrphanFfmpegs({
+      hlsRoot: "/dev/shm/1008/radio-hls",
+      procRoot: proc,
+      killImpl: fake.killImpl,
+      delayMs: async () => {},
+    });
+    assert.deepEqual(result, { killed: 0, attempted: 0 });
+    assert.equal(fake.signals.length, 0);
+  });
+
+  it("skips a process whose /proc/<pid>/status is unreadable", async () => {
+    // Status missing means we can't verify orphan ownership. Better
+    // to skip than risk reaping a non-orphan.
+    await writeCmdline(
+      1701,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/dev/shm/1008/radio-hls/opening/index.m3u8",
+    );
+    // Stomp the status file with a missing one.
+    await rm(path.join(proc, "1701", "status"));
+    const fake = fakeKill([1701]);
+    const result = await cleanupOrphanFfmpegs({
+      hlsRoot: "/dev/shm/1008/radio-hls",
+      procRoot: proc,
+      killImpl: fake.killImpl,
+      delayMs: async () => {},
+    });
+    assert.deepEqual(result, { killed: 0, attempted: 0 });
+  });
+
+  it("matches when hlsRoot env value has redundant separators or '..' (canonicalization)", async () => {
+    // Operators may write HLS_ROOT loosely (extra slashes, ../). The
+    // ffmpeg cmdline however contains the path produced via
+    // path.join() in the supervisor, which normalizes. Match must
+    // therefore canonicalize hlsRoot before comparing.
+    await writeCmdline(
+      1801,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/dev/shm/1008/radio-hls/opening/index.m3u8",
+    );
+    const fake = fakeKill([1801]);
+    const result = await cleanupOrphanFfmpegs({
+      // /dev/shm/1008/foo/../radio-hls/ → canonicalizes to
+      // /dev/shm/1008/radio-hls
+      hlsRoot: "/dev/shm/1008/foo/../radio-hls/",
+      procRoot: proc,
+      killImpl: fake.killImpl,
+      delayMs: async () => {},
+    });
+    assert.equal(result.attempted, 1);
+    assert.equal(result.killed, 1);
+  });
+
   it("tolerates a trailing slash in the configured hlsRoot", async () => {
     // Operators may write HLS_ROOT with or without a trailing slash;
     // the matcher must canonicalize either way.
@@ -571,44 +658,42 @@ describe("cleanupOrphanFfmpegs — real /proc + real defaultKill (integration)",
     };
   }
 
-  it("reaps a real pid via real /proc + real defaultKill", async () => {
-    // Unique hlsRoot so we can't possibly collide with another test
-    // run, another tenant on a shared CI host, or our actual engine.
-    const hlsRoot = `/tmp/pavoia-orphan-itest-${process.pid}-${Date.now()}`;
+  it("does NOT reap a NON-orphan: PPID != 1 means somebody supervises it", async () => {
+    // The child is OUR child (PPID = test process). The orphan guard
+    // must skip it — reaping a supervised process would be friendly
+    // fire (e.g. another live engine on a shared host).
+    const hlsRoot = `/tmp/pavoia-nonorphan-itest-${process.pid}-${Date.now()}`;
     const child = spawnFakeFfmpeg(hlsRoot);
     try {
-      // Give the kernel a moment to populate /proc/<pid>/cmdline.
       await new Promise((r) => setTimeout(r, 200));
 
       const result = await cleanupOrphanFfmpegs({
         hlsRoot,
-        // Default termWaitMs (2 s) plus the test runner's tolerance.
         log: () => {},
       });
 
-      // We may catch sibling sh processes from the test runner
-      // itself spawning helpers, but our fake-ffmpeg should be among
-      // them, and all matched processes should be killed.
-      assert.ok(
-        result.attempted >= 1,
-        `expected ≥1 match for hlsRoot=${hlsRoot}; got ${result.attempted}`,
-      );
       assert.equal(
-        result.killed,
         result.attempted,
-        "every matched pid should be killed",
+        0,
+        `non-orphan must not be matched (PPID=${process.pid}); got attempted=${result.attempted}`,
       );
-
-      // Wait for the child to actually exit so the test cleanly
-      // closes its handle.
-      await Promise.race([
-        child.waitForExit,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("child did not exit")), 5000),
-        ),
-      ]);
+      assert.equal(result.killed, 0);
     } finally {
       child.forceKill();
+      // Wait for child to clean up before next test starts.
+      await Promise.race([
+        child.waitForExit,
+        new Promise((r) => setTimeout(r, 1000)),
+      ]);
     }
   });
+
+  // NOTE: we deliberately do NOT have an integration test for the
+  // PPID=1 happy path. On systemd-based hosts, a Linux child
+  // subreaper (`systemd --user`) intercepts orphans before they
+  // reach PID 1, so a double-fork from inside a test session ends
+  // up with PPID=<systemd-user-pid>, not 1. The PPID=1 check is
+  // production-correct (Whatbox has no systemd) but cannot be
+  // observed cross-platform from inside the test runner. The unit
+  // tests above cover the contract via fake /proc/<pid>/status.
 });

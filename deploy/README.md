@@ -15,7 +15,8 @@ manager — just `cron + nohup + watchdog`, the pattern v1/v2 already use
 ├── bin/
 │   ├── node                  # symlink → mise-managed Node 22.22.2
 │   ├── start-engine.sh       # symlink → ../deploy/bin/start-engine.sh
-│   └── watchdog.sh           # symlink → ../deploy/bin/watchdog.sh
+│   ├── watchdog.sh           # symlink → ../deploy/bin/watchdog.sh
+│   └── log-rotate.sh         # symlink → ../deploy/bin/log-rotate.sh
 ├── deploy/                   # checked-in scripts + this README
 ├── logs/
 │   ├── engine.log            # engine stdout + stderr (append-only)
@@ -62,7 +63,8 @@ Verify `~/webradio-v3/apps/engine/dist/index.js` exists.
 ```bash
 ssh whatbox 'cd ~/webradio-v3/bin && \
   ln -sf ../deploy/bin/start-engine.sh && \
-  ln -sf ../deploy/bin/watchdog.sh'
+  ln -sf ../deploy/bin/watchdog.sh && \
+  ln -sf ../deploy/bin/log-rotate.sh'
 ```
 
 ### 4. Create the env file

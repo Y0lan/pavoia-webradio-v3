@@ -24,3 +24,9 @@
 # 5xx means alive-but-degraded and does NOT trigger restart — restart would
 # destroy diagnostic state.
 * * * * * ~/webradio-v3/bin/watchdog.sh >>~/webradio-v3/logs/cron.log 2>&1
+
+# Rotate engine.log + cron.log nightly. Copytruncate semantics: when a log
+# exceeds 50 MB, the last 5 MB is saved to <file>.last and the live file
+# is truncated in place (so the nohup'd engine's open fd keeps working).
+# Override sizes via LOG_ROTATE_MAX_BYTES / LOG_ROTATE_TAIL_BYTES env.
+0 3 * * * ~/webradio-v3/bin/log-rotate.sh >>~/webradio-v3/logs/cron.log 2>&1

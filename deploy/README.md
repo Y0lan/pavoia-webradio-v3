@@ -50,6 +50,7 @@ From your dev machine:
 
 ```bash
 rsync -av --exclude .git --exclude node_modules --exclude dist \
+      --exclude 'tsconfig.tsbuildinfo' \
       ./ whatbox:~/webradio-v3/
 ssh whatbox 'cd ~/webradio-v3 && npm ci && npm run build --workspace=@pavoia/engine'
 ```
@@ -104,6 +105,7 @@ crontab -l | grep webradio-v3                                    # verify
 ```bash
 # 1. Push code
 rsync -av --exclude .git --exclude node_modules --exclude dist \
+      --exclude 'tsconfig.tsbuildinfo' \
       ./ whatbox:~/webradio-v3/
 
 # 2. Build

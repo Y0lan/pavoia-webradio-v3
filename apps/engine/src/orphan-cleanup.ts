@@ -274,7 +274,11 @@ export async function cleanupOrphanFfmpegs(
   const deadline = Date.now() + termWaitMs;
   while (Date.now() < deadline) {
     if (matches.every((pid) => !isAlive(pid, killImpl))) break;
-    await delayMs(POLL_MS);
+    // Cap the sleep at remaining budget so a sub-100ms termWaitMs
+    // (e.g. tests with termWaitMs=50) doesn't always burn 100ms
+    // before checking again. Without the cap, "honor termWaitMs"
+    // is approximate to within +POLL_MS.
+    await delayMs(Math.min(POLL_MS, Math.max(0, deadline - Date.now())));
   }
 
   // SIGKILL stragglers. Anything still alive after termWaitMs is

@@ -58,6 +58,25 @@ const FFMPEG_BASENAMES = new Set(["ffmpeg"]);
 const PROC_PID_PATTERN = /^\d+$/;
 
 /**
+ * Returns true iff `arg` is the configured hlsRoot or a path under it
+ * (treating it as a directory boundary). Substring matching would
+ * false-positive on sibling paths like
+ *   hlsRoot=/dev/shm/1008/radio-hls
+ *   arg=/dev/shm/1008/radio-hls-OTHER/seg.ts
+ * which we must NOT reap.
+ */
+function argIsUnderHlsRoot(arg: string, hlsRoot: string): boolean {
+  // Strip a trailing separator from hlsRoot so the comparison is
+  // canonical regardless of how the operator wrote the env value.
+  const root =
+    hlsRoot.endsWith(path.sep) && hlsRoot.length > 1
+      ? hlsRoot.slice(0, -1)
+      : hlsRoot;
+  if (arg === root) return true;
+  return arg.startsWith(root + path.sep);
+}
+
+/**
  * Wraps process.kill. For terminating signals, swallows ESRCH so a
  * process that died on its own between scan and signal is treated as
  * success (it's gone — that's what we wanted). For signal 0 (the
@@ -158,7 +177,7 @@ async function scanForOrphans(
     const argv0Basename = path.basename(argv0);
     if (!FFMPEG_BASENAMES.has(argv0Basename)) continue;
 
-    if (argv.some((arg) => arg.includes(hlsRoot))) {
+    if (argv.some((arg) => argIsUnderHlsRoot(arg, hlsRoot))) {
       matches.push(pid);
     }
   }

@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 import type { Stage, Track } from "@pavoia/shared";
 
 import { bootstrap } from "./bootstrap.ts";
+import type { cleanupOrphanFfmpegs } from "./orphan-cleanup.ts";
+
+/** Default to a no-op so tests don't walk real /proc or call real
+ *  process.kill. The orphan-reaper-specific test block injects its
+ *  own fake when behavior matters. */
+const NOOP_CLEANUP: typeof cleanupOrphanFfmpegs = async () => ({
+  killed: 0,
+  attempted: 0,
+});
 import type { EngineConfig } from "./config.ts";
 import type {
   FetchPlaylistResult,
@@ -170,6 +179,7 @@ describe("bootstrap — startup", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(result.registry.size, 2);
@@ -299,6 +309,7 @@ describe("bootstrap — startup", () => {
       ],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(created.length, 1);
@@ -323,6 +334,7 @@ describe("bootstrap — Plex polling queues track updates", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Opening's tracks change — add track 3.
@@ -364,6 +376,7 @@ describe("bootstrap — Plex polling queues track updates", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     plex.setNext(100, [makeTrack(2), makeTrack(1)]); // reordered only
@@ -404,6 +417,7 @@ describe("bootstrap — Plex polling queues track updates", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Simulate the original controller having reached a terminal
@@ -460,6 +474,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(created.length, 1);
@@ -504,6 +519,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Initiate shutdown — that flips the internal flag BEFORE
@@ -538,6 +554,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Kill controllers one at a time until the watcher stops
@@ -583,6 +600,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Burn the revival budget — same loop structure as the cap test
@@ -634,6 +652,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // First poller tick changes the playlist; setTracks is called
@@ -673,6 +692,7 @@ describe("bootstrap — shutdown", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     await result.shutdown();
@@ -695,6 +715,7 @@ describe("bootstrap — shutdown", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     await Promise.all([
@@ -721,6 +742,7 @@ describe("bootstrap — HTTP integration", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     const res = await result.app.request("/api/stages/opening/now");
@@ -750,6 +772,7 @@ describe("bootstrap — HTTP integration", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     const res = await result.app.request("/api/stages/closing/now");

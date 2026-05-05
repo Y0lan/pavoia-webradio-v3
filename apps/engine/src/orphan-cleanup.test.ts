@@ -379,30 +379,88 @@ describe("cleanupOrphanFfmpegs", () => {
     assert.equal(result.killed, 1);
   });
 
-  it("does not match when hlsRoot only appears as a substring of another path", async () => {
-    // We use String.includes() so a hlsRoot of "/dev/shm/1008" would
-    // match a cmdline path "/dev/shm/1008-other/...". Document the
-    // current contract: substring match. Operators should pass a
-    // path-with-trailing-slash if they need stricter matching.
-    //
-    // This test pins the current behavior so future changes are
-    // intentional.
+  it("rejects a sibling path that shares hlsRoot's prefix but is not under it", async () => {
+    // Path-prefix matching: hlsRoot is treated as a directory
+    // boundary. /dev/shm/1008/radio-hls-DECOY/* must NOT match
+    // hlsRoot=/dev/shm/1008/radio-hls — the old substring-include
+    // matcher would have falsely reaped this.
     await writeCmdline(
       1201,
       "/usr/bin/ffmpeg",
       "-i",
       "in.mp3",
-      "/dev/shm/1008-decoy/opening/index.m3u8",
+      "/dev/shm/1008/radio-hls-DECOY/opening/index.m3u8",
     );
     const fake = fakeKill([1201]);
-    // With hlsRoot ending in a slash, the decoy doesn't match.
     const result = await cleanupOrphanFfmpegs({
-      hlsRoot: "/dev/shm/1008/",
+      hlsRoot: "/dev/shm/1008/radio-hls",
       procRoot: proc,
       killImpl: fake.killImpl,
       delayMs: async () => {},
     });
     assert.deepEqual(result, { killed: 0, attempted: 0 });
+  });
+
+  it("rejects a path that has hlsRoot as a non-prefix substring", async () => {
+    // /home/yolan/backups/dev/shm/1008/radio-hls/... contains the
+    // hlsRoot path but not at the start. The old substring matcher
+    // would have falsely matched; the new path-prefix matcher does
+    // not.
+    await writeCmdline(
+      1301,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/home/yolan/backups/dev/shm/1008/radio-hls/copy.ts",
+    );
+    const fake = fakeKill([1301]);
+    const result = await cleanupOrphanFfmpegs({
+      hlsRoot: "/dev/shm/1008/radio-hls",
+      procRoot: proc,
+      killImpl: fake.killImpl,
+      delayMs: async () => {},
+    });
+    assert.deepEqual(result, { killed: 0, attempted: 0 });
+  });
+
+  it("matches when an arg is exactly hlsRoot (no children)", async () => {
+    await writeCmdline(
+      1401,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/dev/shm/1008/radio-hls",
+    );
+    const fake = fakeKill([1401]);
+    const result = await cleanupOrphanFfmpegs({
+      hlsRoot: "/dev/shm/1008/radio-hls",
+      procRoot: proc,
+      killImpl: fake.killImpl,
+      delayMs: async () => {},
+    });
+    assert.equal(result.attempted, 1);
+    assert.equal(result.killed, 1);
+  });
+
+  it("tolerates a trailing slash in the configured hlsRoot", async () => {
+    // Operators may write HLS_ROOT with or without a trailing slash;
+    // the matcher must canonicalize either way.
+    await writeCmdline(
+      1501,
+      "/usr/bin/ffmpeg",
+      "-i",
+      "in.mp3",
+      "/dev/shm/1008/radio-hls/opening/index.m3u8",
+    );
+    const fake = fakeKill([1501]);
+    const result = await cleanupOrphanFfmpegs({
+      hlsRoot: "/dev/shm/1008/radio-hls/", // trailing slash
+      procRoot: proc,
+      killImpl: fake.killImpl,
+      delayMs: async () => {},
+    });
+    assert.equal(result.attempted, 1);
+    assert.equal(result.killed, 1);
   });
 });
 

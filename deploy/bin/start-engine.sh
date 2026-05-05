@@ -71,6 +71,14 @@ PID_FILE="$RUN_DIR/engine.pid"
 LOG_FILE="$LOG_DIR/engine.log"
 LOCK_FILE="$RUN_DIR/engine.lock"
 
+# Snapshot the pre-source NODE_BIN so a legacy env (`NODE_BIN=...`
+# from Week 0, or — against the docs — `RADIO_HOME=...`) can't
+# shift our Node binary path. Other derived paths above are already
+# pre-source and not subject to this drift; only NODE_BIN needs
+# re-pinning because it's the only one operators are likely to
+# have in their env file.
+PINNED_NODE_BIN="$NODE_BIN"
+
 [ -f "$ENV_FILE" ] || die "env file not found: $ENV_FILE (see WEEK0_LOG.md Req G)"
 # Auto-export every assignment in the env file so PLEX_TOKEN, HLS_ROOT, etc.
 # reach the engine child via the inherited environment. Operator may write
@@ -79,6 +87,11 @@ set -a
 # shellcheck disable=SC1090  # path resolved at runtime, not lintable here
 . "$ENV_FILE"
 set +a
+
+# Restore the pre-source NODE_BIN. The bin/node symlink is the
+# supported path; legacy env values are intentionally ignored.
+NODE_BIN="$PINNED_NODE_BIN"
+unset PINNED_NODE_BIN
 
 # Read wait-knob env vars AFTER sourcing the env file — the operator's
 # overrides in $ENV_FILE need to take effect, not the bash environment at

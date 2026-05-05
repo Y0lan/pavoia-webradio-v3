@@ -39,6 +39,7 @@ import {
   type PollerController,
   type StageBinding,
 } from "./stages/poller.ts";
+import { cleanupOrphanFfmpegs } from "./orphan-cleanup.ts";
 
 /** Subset of Plex client config the bootstrap layer derives from
  *  EngineConfig — extracted so tests can stub the client without
@@ -66,6 +67,9 @@ export interface BootstrapInput {
   /** Source of audio stages. Default: AUDIO_STAGES from @pavoia/shared.
    *  Tests use a smaller subset to keep parallelism bounded. */
   audioStages?: readonly Stage[];
+  /** Inject a custom orphan-ffmpeg reaper (tests). Default: real
+   *  `cleanupOrphanFfmpegs` against /proc. */
+  cleanupOrphanFfmpegsImpl?: typeof cleanupOrphanFfmpegs;
 }
 
 export interface BootstrapResult {
@@ -86,7 +90,37 @@ export async function bootstrap(
     log = (line) => console.log(line),
     audioStages = AUDIO_STAGES,
     pollerSchedule,
+    cleanupOrphanFfmpegsImpl = cleanupOrphanFfmpegs,
   } = input;
+
+  // Reap any ffmpeg processes left over from a previous engine run
+  // before any new supervisor starts. On crash recovery (kill -9,
+  // OOM, watchdog respawn after HTTP 000), the previous engine's
+  // ffmpeg children become orphans (PPID=1) and keep writing HLS
+  // segments until they hit a broken pipe or finish their input.
+  // If we don't reap them, the new ffmpegs spawn with `+append_list`
+  // and pick up the leftover m3u8, continuing the segment counter
+  // (e.g. start at 4060+ instead of 0). Verified live on Whatbox
+  // during Task 7 smoke-test (see issue #19).
+  //
+  // Non-fatal: if the cleanup itself fails, log and continue. The
+  // engine will still come up; orphans will just persist and rack up
+  // delete-segment warnings until they die naturally.
+  try {
+    const result = await cleanupOrphanFfmpegsImpl({
+      hlsRoot: config.hlsRoot,
+      log,
+    });
+    if (result.attempted > 0) {
+      log(
+        `[engine] orphan ffmpeg reap: attempted=${result.attempted} killed=${result.killed}`,
+      );
+    }
+  } catch (err) {
+    log(
+      `[engine] orphan ffmpeg cleanup failed (non-fatal): ${formatErr(err)}`,
+    );
+  }
 
   const plexClient =
     input.plexClient ??

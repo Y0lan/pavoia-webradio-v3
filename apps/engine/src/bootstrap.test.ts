@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 import type { Stage, Track } from "@pavoia/shared";
 
 import { bootstrap } from "./bootstrap.ts";
+import type { cleanupOrphanFfmpegs } from "./orphan-cleanup.ts";
+
+/** Default to a no-op so tests don't walk real /proc or call real
+ *  process.kill. The orphan-reaper-specific test block injects its
+ *  own fake when behavior matters. */
+const NOOP_CLEANUP: typeof cleanupOrphanFfmpegs = async () => ({
+  killed: 0,
+  attempted: 0,
+});
 import type { EngineConfig } from "./config.ts";
 import type {
   FetchPlaylistResult,
@@ -170,6 +179,7 @@ describe("bootstrap — startup", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(result.registry.size, 2);
@@ -224,6 +234,9 @@ describe("bootstrap — startup", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      // Skip real /proc scan so the timing assertion measures Plex
+      // fetch parallelism, not /proc walk overhead.
+      cleanupOrphanFfmpegsImpl: async () => ({ killed: 0, attempted: 0 }),
     });
 
     const elapsed = Date.now() - start;
@@ -262,6 +275,7 @@ describe("bootstrap — startup", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: (line) => logged.push(line),
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(result.registry.size, 2, "both stages registered");
@@ -296,6 +310,7 @@ describe("bootstrap — startup", () => {
       ],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(created.length, 1);
@@ -320,6 +335,7 @@ describe("bootstrap — Plex polling queues track updates", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Opening's tracks change — add track 3.
@@ -361,6 +377,7 @@ describe("bootstrap — Plex polling queues track updates", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     plex.setNext(100, [makeTrack(2), makeTrack(1)]); // reordered only
@@ -401,6 +418,7 @@ describe("bootstrap — Plex polling queues track updates", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Simulate the original controller having reached a terminal
@@ -457,6 +475,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     assert.equal(created.length, 1);
@@ -501,6 +520,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Initiate shutdown — that flips the internal flag BEFORE
@@ -535,6 +555,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Kill controllers one at a time until the watcher stops
@@ -580,6 +601,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // Burn the revival budget — same loop structure as the cap test
@@ -631,6 +653,7 @@ describe("bootstrap — controller liveness watcher (issue #12)", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     // First poller tick changes the playlist; setTracks is called
@@ -670,6 +693,7 @@ describe("bootstrap — shutdown", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     await result.shutdown();
@@ -692,6 +716,7 @@ describe("bootstrap — shutdown", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     await Promise.all([
@@ -718,6 +743,7 @@ describe("bootstrap — HTTP integration", () => {
       audioStages: TWO_STAGES,
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     const res = await result.app.request("/api/stages/opening/now");
@@ -747,12 +773,145 @@ describe("bootstrap — HTTP integration", () => {
       audioStages: [fakeStage("opening", 100)],
       pollerSchedule: sched.schedule,
       log: () => {},
+      cleanupOrphanFfmpegsImpl: NOOP_CLEANUP,
     });
 
     const res = await result.app.request("/api/stages/closing/now");
     assert.equal(res.status, 503);
     const body = (await res.json()) as { error: string };
     assert.equal(body.error, "stage_not_running");
+
+    await result.shutdown();
+  });
+});
+
+describe("bootstrap — orphan ffmpeg reaper (issue #19)", () => {
+  it("calls cleanupOrphanFfmpegsImpl before any supervisor starts", async () => {
+    const plex = scriptedPlex();
+    plex.setNext(100, []);
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const callOrder: string[] = [];
+    const fakeCleanup: typeof import("./orphan-cleanup.ts").cleanupOrphanFfmpegs =
+      async (opts) => {
+        callOrder.push("cleanup");
+        assert.equal(opts.hlsRoot, BASE_CONFIG.hlsRoot);
+        return { killed: 0, attempted: 0 };
+      };
+    // Stamp every supervisor creation so we can check ordering.
+    const stampedFakeStartStage: typeof fakeStartStage = (cfg) => {
+      callOrder.push(`startStage:${cfg.stageId}`);
+      return fakeStartStage(cfg);
+    };
+
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: stampedFakeStartStage,
+      audioStages: TWO_STAGES.slice(0, 1),
+      pollerSchedule: sched.schedule,
+      log: () => {},
+      cleanupOrphanFfmpegsImpl: fakeCleanup,
+    });
+
+    assert.equal(callOrder[0], "cleanup", "cleanup must run first");
+    assert.ok(callOrder.includes("startStage:opening"));
+    assert.equal(created.length, 1);
+
+    await result.shutdown();
+  });
+
+  it("logs the reap result when orphans are found", async () => {
+    const plex = scriptedPlex();
+    plex.setNext(100, []);
+    const { fakeStartStage } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const fakeCleanup: typeof import("./orphan-cleanup.ts").cleanupOrphanFfmpegs =
+      async () => ({ killed: 3, attempted: 3 });
+
+    const lines: string[] = [];
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: TWO_STAGES.slice(0, 1),
+      pollerSchedule: sched.schedule,
+      log: (l) => lines.push(l),
+      cleanupOrphanFfmpegsImpl: fakeCleanup,
+    });
+
+    assert.ok(
+      lines.some(
+        (l) =>
+          l.includes("orphan ffmpeg reap") &&
+          l.includes("attempted=3") &&
+          l.includes("killed=3"),
+      ),
+      `expected reap-summary log; got: ${JSON.stringify(lines)}`,
+    );
+
+    await result.shutdown();
+  });
+
+  it("does NOT log a reap line when there were no orphans (clean start)", async () => {
+    const plex = scriptedPlex();
+    plex.setNext(100, []);
+    const { fakeStartStage } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const fakeCleanup: typeof import("./orphan-cleanup.ts").cleanupOrphanFfmpegs =
+      async () => ({ killed: 0, attempted: 0 });
+
+    const lines: string[] = [];
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: TWO_STAGES.slice(0, 1),
+      pollerSchedule: sched.schedule,
+      log: (l) => lines.push(l),
+      cleanupOrphanFfmpegsImpl: fakeCleanup,
+    });
+
+    assert.ok(
+      !lines.some((l) => l.includes("orphan ffmpeg reap")),
+      "clean start should not log a reap summary",
+    );
+
+    await result.shutdown();
+  });
+
+  it("continues bootstrap even if cleanup throws (non-fatal)", async () => {
+    const plex = scriptedPlex();
+    plex.setNext(100, []);
+    const { fakeStartStage, created } = fakeStartStageFactory();
+    const sched = manualSchedule();
+
+    const fakeCleanup: typeof import("./orphan-cleanup.ts").cleanupOrphanFfmpegs =
+      async () => {
+        throw new Error("simulated /proc unreadable");
+      };
+
+    const lines: string[] = [];
+    const result = await bootstrap({
+      config: BASE_CONFIG,
+      plexClient: plex.client,
+      startStageImpl: fakeStartStage,
+      audioStages: TWO_STAGES.slice(0, 1),
+      pollerSchedule: sched.schedule,
+      log: (l) => lines.push(l),
+      cleanupOrphanFfmpegsImpl: fakeCleanup,
+    });
+
+    // Engine still came up.
+    assert.equal(created.length, 1);
+    // Failure was logged as non-fatal.
+    assert.ok(
+      lines.some((l) => l.includes("orphan ffmpeg cleanup failed")),
+      `expected non-fatal failure log; got: ${JSON.stringify(lines)}`,
+    );
 
     await result.shutdown();
   });

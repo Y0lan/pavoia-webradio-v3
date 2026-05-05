@@ -16,8 +16,11 @@
 #   - `: > file` truncates the inode in place, leaving the engine's fd
 #     pointing at the (now-empty) same file. The next append starts at
 #     position 0. Lossy for whatever the engine wrote between our tail
-#     copy and the truncate, but the window is sub-millisecond and the
-#     log is informational, not transactional.
+#     copy and the truncate — the window is the duration of the tail
+#     read (milliseconds for 5 MB on tmpfs, longer under IO pressure),
+#     which is acceptable because the log is informational, not
+#     transactional. cron.log gets rotated during a minute the watchdog
+#     also writes to; same trade-off.
 #
 # Defaults are conservative for a personal Whatbox deploy (252 GB tmpfs,
 # ~5 TB user disk):
@@ -34,8 +37,15 @@
 
 set -euo pipefail
 
+# Tighten file creation perms so the brief moment between creat() and
+# our explicit chmod 600 isn't a window for group/world-readable files
+# under a permissive cron umask. (Codex P3 on PR #23.)
+umask 077
+
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 LOG_DIR="$RADIO_HOME/logs"
+RUN_DIR="$RADIO_HOME/run"
+LOCK_FILE="$RUN_DIR/log-rotate.lock"
 MAX_BYTES="${LOG_ROTATE_MAX_BYTES:-52428800}"   # 50 MB
 TAIL_BYTES="${LOG_ROTATE_TAIL_BYTES:-5242880}"  # 5 MB
 
@@ -56,6 +66,18 @@ if [ ! -d "$LOG_DIR" ]; then
   exit 1
 fi
 
+# Single-instance lock so a manual run overlapping cron (or a hung
+# previous run) can't race two truncates. Same pattern as start-engine
+# and watchdog. RUN_DIR may not exist yet on a brand-new deploy; create
+# it best-effort.
+mkdir -p "$RUN_DIR" 2>/dev/null || true
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  # Another rotator is running — exit silently. Cron will retry tomorrow,
+  # and the script is idempotent (rotate-if-too-large), so no work lost.
+  exit 0
+fi
+
 # Files we manage. Anything else under logs/ is left alone (operator may
 # have placed manual archives there).
 LOGS=(engine.log cron.log)
@@ -74,15 +96,18 @@ rotate_one() {
     return 0
   fi
 
-  # Save the tail before truncating. If the whole file is shorter than
-  # TAIL_BYTES (shouldn't happen given the size>MAX_BYTES gate above,
-  # but defensive), fall back to a full copy.
+  # Save the tail to a temp file in the same directory, then atomically
+  # rename to <file>.last. If tail/cp is interrupted (signal, ENOSPC),
+  # we keep the previous .last instead of clobbering it with a partial.
+  # (Codex P2 on PR #23.)
+  local tmp="$file.last.tmp.$$"
   if [ "$size" -gt "$TAIL_BYTES" ]; then
-    tail -c "$TAIL_BYTES" "$file" > "$file.last"
+    tail -c "$TAIL_BYTES" "$file" > "$tmp"
   else
-    cp -p "$file" "$file.last"
+    cp -p "$file" "$tmp"
   fi
-  chmod 600 "$file.last"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$file.last"
 
   # Truncate the live file in place (keeps inode → engine's open fd
   # remains valid).

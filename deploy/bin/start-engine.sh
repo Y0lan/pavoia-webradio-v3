@@ -63,7 +63,6 @@ is_our_engine() {
 RADIO_HOME="${RADIO_HOME:-$HOME/webradio-v3}"
 ENV_FILE="${RADIO_ENV_FILE:-$HOME/.config/radio/env}"
 
-NODE_BIN="$RADIO_HOME/bin/node"
 ENGINE_ENTRY="$RADIO_HOME/apps/engine/dist/index.js"
 LOG_DIR="$RADIO_HOME/logs"
 RUN_DIR="$RADIO_HOME/run"
@@ -79,6 +78,15 @@ set -a
 # shellcheck disable=SC1090  # path resolved at runtime, not lintable here
 . "$ENV_FILE"
 set +a
+
+# Pin NODE_BIN to the deploy symlink AFTER sourcing the env file. The
+# Week-0 env template had NODE_BIN=<absolute path to a specific mise
+# install> (e.g. .../node/22.22.2/bin/node). With `set -a` above, a
+# surviving NODE_BIN= line in someone's env would override our default
+# and break the deploy if mise ever prunes that exact version. The
+# bin/node symlink is the supported path; legacy env values are
+# intentionally ignored.
+NODE_BIN="$RADIO_HOME/bin/node"
 
 # Read wait-knob env vars AFTER sourcing the env file — the operator's
 # overrides in $ENV_FILE need to take effect, not the bash environment at

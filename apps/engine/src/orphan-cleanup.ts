@@ -57,11 +57,22 @@ export interface CleanupResult {
 const FFMPEG_BASENAMES = new Set(["ffmpeg"]);
 const PROC_PID_PATTERN = /^\d+$/;
 
-/** Wraps process.kill so ESRCH (process already gone) is not thrown. */
-function defaultKill(pid: number, signal: NodeJS.Signals | 0): void {
+/**
+ * Wraps process.kill. For terminating signals, swallows ESRCH so a
+ * process that died on its own between scan and signal is treated as
+ * success (it's gone — that's what we wanted). For signal 0 (the
+ * existence probe), ESRCH MUST propagate so isAlive() can distinguish
+ * "alive" from "dead" — without this, the polling grace period
+ * collapses and we always SIGKILL after termWaitMs even when SIGTERM
+ * already worked.
+ *
+ * Exported only so tests can verify the propagation rule directly.
+ */
+export function defaultKill(pid: number, signal: NodeJS.Signals | 0): void {
   try {
     process.kill(pid, signal);
   } catch (err) {
+    if (signal === 0) throw err;
     if ((err as NodeJS.ErrnoException).code === "ESRCH") return;
     throw err;
   }

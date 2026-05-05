@@ -1,10 +1,11 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { cleanupOrphanFfmpegs } from "./orphan-cleanup.ts";
+import { cleanupOrphanFfmpegs, defaultKill } from "./orphan-cleanup.ts";
 
 /**
  * Tests use a fake /proc directory rooted in a tmpdir. Each test
@@ -402,5 +403,154 @@ describe("cleanupOrphanFfmpegs", () => {
       delayMs: async () => {},
     });
     assert.deepEqual(result, { killed: 0, attempted: 0 });
+  });
+});
+
+/**
+ * The unit tests above use a fake killImpl that throws ESRCH on dead
+ * pids. The PRODUCTION defaultKill must do the same on signal 0 (the
+ * existence probe used by isAlive) — otherwise isAlive always returns
+ * true and the SIGTERM grace period collapses to "always SIGKILL".
+ *
+ * CodeRabbit caught this on the original PR (#21): the original
+ * defaultKill swallowed ESRCH unconditionally, masking real death from
+ * the existence probe. This block asserts the contract directly and
+ * runs a real-process integration test so a regression couldn't slip
+ * past the unit tests' fake killImpl.
+ */
+describe("defaultKill — ESRCH propagation contract", () => {
+  /** Spawn /bin/true and resolve with its (now-dead) pid once exited. */
+  function spawnAndAwaitExit(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const child = spawn("/bin/true", [], { stdio: "ignore" });
+      const pid = child.pid;
+      if (pid === undefined) {
+        reject(new Error("spawn /bin/true failed: no pid"));
+        return;
+      }
+      child.on("error", reject);
+      child.on("exit", () => {
+        // Give the kernel a moment to clear the pid from /proc so a
+        // subsequent kill(pid, 0) sees ESRCH cleanly. This is paranoid
+        // — exit handlers usually fire after the kernel has reaped —
+        // but the test is timing-sensitive enough to warrant the wait.
+        setTimeout(() => resolve(pid), 50);
+      });
+    });
+  }
+
+  it("throws ESRCH on signal 0 for a dead pid (so isAlive can detect death)", async () => {
+    const deadPid = await spawnAndAwaitExit();
+    assert.throws(
+      () => defaultKill(deadPid, 0),
+      (err: NodeJS.ErrnoException) => err.code === "ESRCH",
+    );
+  });
+
+  it("swallows ESRCH on SIGTERM for a dead pid (already-dead == success)", async () => {
+    const deadPid = await spawnAndAwaitExit();
+    assert.doesNotThrow(() => defaultKill(deadPid, "SIGTERM"));
+  });
+
+  it("swallows ESRCH on SIGKILL for a dead pid (already-dead == success)", async () => {
+    const deadPid = await spawnAndAwaitExit();
+    assert.doesNotThrow(() => defaultKill(deadPid, "SIGKILL"));
+  });
+
+  it("does not throw on signal 0 for an alive pid (own process)", () => {
+    assert.doesNotThrow(() => defaultKill(process.pid, 0));
+  });
+});
+
+describe("cleanupOrphanFfmpegs — real /proc + real defaultKill (integration)", () => {
+  /**
+   * Spawn a real /bin/sh that pretends to be ffmpeg via Node's argv0
+   * option. The sh process loops forever on `read -t` so it stays
+   * alive in /proc with our hlsRoot marker visible in cmdline, and
+   * dies cleanly on SIGTERM (sh interrupts the read).
+   */
+  function spawnFakeFfmpeg(hlsRoot: string): {
+    pid: number;
+    waitForExit: Promise<void>;
+    forceKill: () => void;
+  } {
+    const child = spawn(
+      "/bin/bash",
+      [
+        "-c",
+        // Multi-statement loop body so bash CAN'T tail-exec the
+        // sleep (which would replace bash's argv with sleep's, hiding
+        // our hlsRoot marker from /proc/<pid>/cmdline).
+        "while :; do sleep 1; done",
+        // bash's $0 — visible in cmdline:
+        "fake-ffmpeg-driver",
+        // bash's $1 — also visible in cmdline, contains hlsRoot marker:
+        `${hlsRoot}/opening/index.m3u8`,
+      ],
+      {
+        stdio: "ignore",
+        // argv0 puts "ffmpeg" as argv[0] in /proc/<pid>/cmdline so
+        // the basename matcher inside cleanupOrphanFfmpegs accepts it.
+        argv0: "ffmpeg",
+        detached: false,
+      },
+    );
+    const pid = child.pid;
+    if (pid === undefined) throw new Error("spawn failed");
+    const waitForExit = new Promise<void>((resolve) => {
+      child.on("exit", () => resolve());
+    });
+    return {
+      pid,
+      waitForExit,
+      forceKill: () => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already dead
+        }
+      },
+    };
+  }
+
+  it("reaps a real pid via real /proc + real defaultKill", async () => {
+    // Unique hlsRoot so we can't possibly collide with another test
+    // run, another tenant on a shared CI host, or our actual engine.
+    const hlsRoot = `/tmp/pavoia-orphan-itest-${process.pid}-${Date.now()}`;
+    const child = spawnFakeFfmpeg(hlsRoot);
+    try {
+      // Give the kernel a moment to populate /proc/<pid>/cmdline.
+      await new Promise((r) => setTimeout(r, 200));
+
+      const result = await cleanupOrphanFfmpegs({
+        hlsRoot,
+        // Default termWaitMs (2 s) plus the test runner's tolerance.
+        log: () => {},
+      });
+
+      // We may catch sibling sh processes from the test runner
+      // itself spawning helpers, but our fake-ffmpeg should be among
+      // them, and all matched processes should be killed.
+      assert.ok(
+        result.attempted >= 1,
+        `expected ≥1 match for hlsRoot=${hlsRoot}; got ${result.attempted}`,
+      );
+      assert.equal(
+        result.killed,
+        result.attempted,
+        "every matched pid should be killed",
+      );
+
+      // Wait for the child to actually exit so the test cleanly
+      // closes its handle.
+      await Promise.race([
+        child.waitForExit,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("child did not exit")), 5000),
+        ),
+      ]);
+    } finally {
+      child.forceKill();
+    }
   });
 });

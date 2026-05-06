@@ -6,8 +6,21 @@ import { useStages } from "../api/stages.ts";
  * state so the listener's first interaction is intentional.
  */
 export function HomePage() {
-  const { data: stages, isLoading } = useStages();
-  const audioStages = (stages ?? []).filter((s) => !s.disabled);
+  const { data: stages, isLoading, isError } = useStages();
+
+  // Tagline copy depends on whether we successfully reached the engine.
+  // The Sidebar shows a verbose error UI when isError is true; here we
+  // just degrade to a neutral prompt so we never flash a misleading
+  // "0 stages broadcasting".
+  let tagline: string;
+  if (isLoading) {
+    tagline = "Loading…";
+  } else if (isError || !stages) {
+    tagline = "Pick a stage from the sidebar to listen.";
+  } else {
+    const audioCount = stages.filter((s) => !s.disabled).length;
+    tagline = `${audioCount} stages broadcasting from gaende's vault. Pick one to listen.`;
+  }
 
   return (
     <section className="flex min-h-dvh items-center justify-center px-8 py-12">
@@ -16,9 +29,7 @@ export function HomePage() {
           welcome to pavoia
         </h2>
         <p className="mt-4 text-balance text-sm text-slate-400 md:text-base">
-          {isLoading
-            ? "Loading…"
-            : `${audioStages.length} stages broadcasting from gaende's vault. Pick one to listen.`}
+          {tagline}
         </p>
       </div>
     </section>

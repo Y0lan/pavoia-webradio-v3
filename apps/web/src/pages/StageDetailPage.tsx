@@ -10,8 +10,35 @@ import { useStages } from "../api/stages.ts";
  */
 export function StageDetailPage() {
   const { stageId } = useParams({ from: "/stage/$stageId" });
-  const { data: stages } = useStages();
-  const stage = (stages ?? []).find((s) => s.id === stageId);
+  const { data: stages, isLoading, isError } = useStages();
+
+  // While useStages is still resolving, render a quiet loading state
+  // instead of flashing "Stage not found" before the data lands.
+  if (isLoading || (!isError && !stages)) {
+    return (
+      <section className="px-8 py-12">
+        <p className="text-sm text-slate-500">Loading stage…</p>
+      </section>
+    );
+  }
+
+  // Engine unreachable — Sidebar shows the verbose error; here we
+  // just say enough to avoid confusion.
+  if (isError) {
+    return (
+      <section className="px-8 py-12">
+        <h2 className="text-xl font-semibold text-slate-200">
+          Engine unreachable
+        </h2>
+        <p className="mt-2 text-sm text-slate-400">
+          Can't load stage <code className="text-slate-300">{stageId}</code>{" "}
+          right now. See the sidebar for diagnostics.
+        </p>
+      </section>
+    );
+  }
+
+  const stage = stages?.find((s) => s.id === stageId);
 
   if (!stage) {
     return (

@@ -131,8 +131,18 @@ export function ArtistDrawer() {
             aria-label="Close"
             className="flex size-8 items-center justify-center rounded-sm border border-[var(--color-card-border-strong)] text-[var(--color-text-soft)] transition-colors hover:bg-[var(--color-bg-soft)] hover:text-[var(--color-text)]"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M18.3 5.71L12 12l6.3 6.29-1.42 1.42L10.59 13.42 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29 10.59 10.58 16.88 4.29z" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              fill="none"
+              aria-hidden="true"
+            >
+              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="6" y1="18" x2="18" y2="6" />
             </svg>
           </button>
         </header>

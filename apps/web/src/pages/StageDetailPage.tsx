@@ -102,7 +102,7 @@ interface StageNowSectionProps {
 }
 
 function StageNowSection({ stageId, stage }: StageNowSectionProps) {
-  const { data, isLoading, isError, error } = useStageNow(stageId);
+  const { data, isLoading, error } = useStageNow(stageId);
 
   if (isLoading) {
     return (
@@ -112,7 +112,13 @@ function StageNowSection({ stageId, stage }: StageNowSectionProps) {
     );
   }
 
-  if (isError || !data) {
+  // The blocking error state only fires on initial-load failure
+  // (data is undefined). TanStack Query keeps the last successful
+  // snapshot in `data` across transient refetch errors, so a 5 s
+  // poll that flakes mid-listen doesn't replace the live card with
+  // an error panel. The lower-corner badge still surfaces "stale"
+  // so the listener knows the timestamp may be lagging.
+  if (!data) {
     return (
       <article className="rounded-2xl border border-rose-900/60 bg-rose-950/20 p-6 backdrop-blur-sm md:p-8">
         <p className="text-sm font-medium text-rose-300">
@@ -125,5 +131,15 @@ function StageNowSection({ stageId, stage }: StageNowSectionProps) {
     );
   }
 
-  return <NowPlaying stage={stage} payload={data} />;
+  return (
+    <>
+      <NowPlaying stage={stage} payload={data} />
+      {error ? (
+        <p className="mt-2 text-xs text-amber-300/80">
+          ⚠ Live updates are stalled (engine unreachable). Track shown is
+          the last good snapshot.
+        </p>
+      ) : null}
+    </>
+  );
 }

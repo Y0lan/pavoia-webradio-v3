@@ -74,6 +74,13 @@ function StatusPill({
   );
 }
 
+// Both label() and describePlaceholder() take the status as a typed
+// union, but the value is parsed from JSON without runtime validation
+// (see api/now.ts) — so future engine schema drift could deliver an
+// unrecognized string. Default arms keep the UI coherent instead of
+// rendering blank text, and the cast surfaces the unknown value to
+// the operator via the visible label.
+
 function label(status: NowPlayingPayload["status"]): string {
   switch (status) {
     case "playing":
@@ -86,6 +93,8 @@ function label(status: NowPlayingPayload["status"]): string {
       return "Stopping";
     case "stopped":
       return "Stopped";
+    default:
+      return String(status);
   }
 }
 
@@ -104,5 +113,7 @@ function describePlaceholder(status: NowPlayingPayload["status"]): string {
       // The supervisor briefly sits here between a track ending and
       // the next first segment landing on disk.
       return "Loading next track…";
+    default:
+      return `Stage is in an unknown state (${String(status)}).`;
   }
 }

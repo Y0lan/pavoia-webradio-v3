@@ -8,16 +8,16 @@ interface MobileHeaderProps {
  */
 export function MobileHeader({ onOpenDrawer }: MobileHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[--color-card-border] bg-[--color-bg]/95 px-4 py-3 backdrop-blur md:hidden">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--color-card-border)] bg-[var(--color-bg)]/95 px-4 py-3 backdrop-blur md:hidden">
       <div className="flex items-baseline gap-2">
         <span
-          className="animate-blink font-mono text-[10px] text-[--color-accent]"
+          className="animate-blink font-mono text-[10px] text-[var(--color-accent)]"
           aria-hidden="true"
         >
           ▸
         </span>
         <h1
-          className="font-mono text-base font-bold tracking-[0.18em] text-[--color-accent]"
+          className="font-mono text-base font-bold tracking-[0.18em] text-[var(--color-accent)]"
           style={{ textShadow: "0 0 14px rgba(232,80,32,0.25)" }}
         >
           PAVOIA
@@ -27,7 +27,7 @@ export function MobileHeader({ onOpenDrawer }: MobileHeaderProps) {
         type="button"
         onClick={onOpenDrawer}
         aria-label="Open stages menu"
-        className="flex size-10 items-center justify-center rounded-sm border border-[--color-card-border-strong] text-[--color-text-soft] transition-colors hover:bg-[--color-bg-soft]"
+        className="flex size-10 items-center justify-center rounded-sm border border-[var(--color-card-border-strong)] text-[var(--color-text-soft)] transition-colors hover:bg-[var(--color-bg-soft)]"
       >
         <svg
           viewBox="0 0 24 24"

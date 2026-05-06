@@ -35,7 +35,7 @@ function TrackProgress({
   return (
     <div className="space-y-2">
       <div
-        className="h-[2px] overflow-hidden rounded-full bg-[--color-bg-soft]"
+        className="h-[2px] overflow-hidden rounded-full bg-[var(--color-bg-soft)]"
         role="progressbar"
         aria-valuenow={Math.round(pct)}
         aria-valuemin={0}
@@ -47,7 +47,7 @@ function TrackProgress({
           style={{ width: `${pct}%`, backgroundColor: accent }}
         />
       </div>
-      <div className="flex justify-between font-mono text-[10px] tabular-nums text-[--color-text-faint]">
+      <div className="flex justify-between font-mono text-[10px] tabular-nums text-[var(--color-text-faint)]">
         <span>{formatTime(elapsedSec)}</span>
         <span>{formatTime(durationSec)}</span>
       </div>
@@ -106,7 +106,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
   return (
     <div className="flex flex-col items-center px-6 pb-32 pt-6 md:px-8 md:pb-40 md:pt-10">
       {/* Stage label (mono, prefixed with //) */}
-      <div className="mb-4 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[--color-text-faint]">
+      <div className="mb-4 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
         <span
           className={`size-1.5 rounded-full ${
             isPlaying ? "animate-blink" : ""
@@ -117,13 +117,13 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
           aria-hidden="true"
         />
         <span style={{ color: isPlaying ? stage.accent : undefined }}>
-          {isPlaying ? "on air" : "off"} · stage {String(stage.order).padStart(2, "0")}
+          {isPlaying ? "on air" : "off"} · stage {String(stage.order + 1).padStart(2, "0")}
         </span>
       </div>
 
       {/* Stage title */}
       <h1
-        className="font-serif text-3xl italic leading-tight text-[--color-text] md:text-4xl"
+        className="font-serif text-3xl italic leading-tight text-[var(--color-text)] md:text-4xl"
       >
         {stage.fallbackTitle.toLowerCase()}
       </h1>
@@ -131,7 +131,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
       {/* Cover art / placeholder. Square, vinyl-ish, atmospheric. */}
       <div className="relative my-10 w-full max-w-sm md:my-14 md:max-w-md">
         <div
-          className="aspect-square w-full overflow-hidden rounded-sm shadow-2xl ring-1 ring-[--color-card-border-strong]"
+          className="aspect-square w-full overflow-hidden rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
           style={{
             backgroundImage: `
               radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
@@ -172,23 +172,23 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
       <div className="w-full max-w-md text-center">
         {track ? (
           <>
-            <h2 className="line-clamp-2 font-sans text-2xl font-semibold leading-tight text-[--color-text] md:text-3xl">
+            <h2 className="line-clamp-2 font-sans text-2xl font-semibold leading-tight text-[var(--color-text)] md:text-3xl">
               {track.title}
             </h2>
-            <p className="mt-2 truncate font-serif text-lg italic text-[--color-text-soft] md:text-xl">
+            <p className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] md:text-xl">
               {track.artist}
             </p>
-            <p className="mt-1.5 truncate font-mono text-[11px] uppercase tracking-wider text-[--color-text-faint]">
+            <p className="mt-1.5 truncate font-mono text-[11px] uppercase tracking-wider text-[var(--color-text-faint)]">
               {track.album}
               {typeof track.albumYear === "number" ? ` · ${track.albumYear}` : ""}
             </p>
           </>
         ) : (
           <>
-            <h2 className="font-sans text-2xl font-semibold text-[--color-text] md:text-3xl">
+            <h2 className="font-sans text-2xl font-semibold text-[var(--color-text)] md:text-3xl">
               {placeholderTitle(status)}
             </h2>
-            <p className="mt-2 font-serif text-base italic text-[--color-text-soft]">
+            <p className="mt-2 font-serif text-base italic text-[var(--color-text-soft)]">
               {placeholderSubtitle(status, stage)}
             </p>
           </>
@@ -261,7 +261,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
 
         {/* Status caption under the button */}
         <p
-          className="mt-4 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-[--color-text-faint]"
+          className="mt-4 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]"
           aria-live="polite"
         >
           {captionForState(displayState, isThisStageActive)}

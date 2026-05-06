@@ -37,7 +37,8 @@ export function StageItem({
   const isPlaying = playingStageId === stage.id && state === "playing";
   const isLoadedHere = playingStageId === stage.id;
 
-  const number = String(index).padStart(2, "0");
+  // 1-based for the listener: stage 01, 02, ... rather than 00.
+  const number = String(index + 1).padStart(2, "0");
   const accent = stage.accent;
 
   // Disabled (Bus) — italic, dimmed, opens easter egg dialog.
@@ -46,23 +47,23 @@ export function StageItem({
       <button
         type="button"
         onClick={onOpenBus}
-        className="group relative flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-[--color-bg-soft]"
+        className="group relative flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-[var(--color-bg-soft)]"
       >
-        <span className="font-mono text-[10px] tabular-nums text-[--color-text-faint]">
+        <span className="font-mono text-[10px] tabular-nums text-[var(--color-text-faint)]">
           {number}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-[11px] text-[--color-text-faint]">
+            <span className="font-mono text-[11px] text-[var(--color-text-faint)]">
               //
             </span>
             <span
-              className="truncate font-serif text-base italic text-[--color-text-soft]"
+              className="truncate font-serif text-base italic text-[var(--color-text-soft)]"
             >
               {stage.fallbackTitle.toLowerCase()}
             </span>
           </div>
-          <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[--color-text-faint]">
+          <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
             no audio · ui only
           </div>
         </div>
@@ -81,7 +82,7 @@ export function StageItem({
       to="/stage/$stageId"
       params={{ stageId: stage.id }}
       aria-current={isActive ? "page" : undefined}
-      className="group relative flex w-full items-center gap-3 px-5 py-3 transition-colors hover:bg-[--color-bg-soft]"
+      className="group relative flex w-full items-center gap-3 px-5 py-3 transition-colors hover:bg-[var(--color-bg-soft)]"
     >
       {/* Active-route stripe — thin vertical bar, accent color */}
       {isActive && (
@@ -130,7 +131,7 @@ export function StageItem({
             {stage.fallbackTitle.toLowerCase()}
           </span>
         </div>
-        <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[--color-text-faint]">
+        <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
           {stage.fallbackDescription.split(/[.,]/)[0]}
         </div>
       </div>

@@ -56,7 +56,7 @@ export function Dialog({ open, onClose, ariaLabel, children }: DialogProps) {
       ref={ref}
       aria-label={ariaLabel}
       onClick={onBackdropClick}
-      className="m-auto max-w-md rounded-sm border border-[--color-card-border-strong] bg-[--color-card] p-0 text-[--color-text] shadow-2xl backdrop:bg-black/80 backdrop:backdrop-blur-md"
+      className="m-auto max-w-md rounded-sm border border-[var(--color-card-border-strong)] bg-[var(--color-card)] p-0 text-[var(--color-text)] shadow-2xl backdrop:bg-black/80 backdrop:backdrop-blur-md"
     >
       <div className="p-6 md:p-8">{children}</div>
     </dialog>

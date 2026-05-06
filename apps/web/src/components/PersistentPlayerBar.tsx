@@ -35,11 +35,11 @@ export function PersistentPlayerBar() {
   const accent = stage.accent;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[--color-card-border-strong] bg-[--color-bg-soft]/95 backdrop-blur-md">
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--color-card-border-strong)] bg-[var(--color-bg-soft)]/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 md:gap-4 md:px-6">
         {/* On-air indicator */}
         <div
-          className="flex shrink-0 items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[--color-text-faint]"
+          className="flex shrink-0 items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]"
           style={{ minWidth: 0 }}
         >
           <span
@@ -55,7 +55,7 @@ export function PersistentPlayerBar() {
         <Link
           to="/stage/$stageId"
           params={{ stageId: stage.id }}
-          className="size-12 shrink-0 overflow-hidden rounded-sm shadow-md ring-1 ring-[--color-card-border]"
+          className="size-12 shrink-0 overflow-hidden rounded-sm shadow-md ring-1 ring-[var(--color-card-border)]"
           style={{
             backgroundImage: `linear-gradient(135deg, ${stage.gradient.from}, ${stage.gradient.via}, ${stage.gradient.to})`,
           }}
@@ -64,21 +64,21 @@ export function PersistentPlayerBar() {
 
         {/* Track meta */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[--color-text-faint]">
+          <div className="flex items-baseline gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-faint)]">
             <span>// </span>
             <Link
               to="/stage/$stageId"
               params={{ stageId: stage.id }}
-              className="truncate transition-colors hover:text-[--color-text-soft]"
+              className="truncate transition-colors hover:text-[var(--color-text-soft)]"
               style={{ color: `${accent}` }}
             >
               {stage.fallbackTitle.toLowerCase()}
             </Link>
           </div>
-          <div className="truncate font-sans text-sm font-medium text-[--color-text]">
+          <div className="truncate font-sans text-sm font-medium text-[var(--color-text)]">
             {now?.track?.title ?? (isLoading ? "Buffering…" : "—")}
           </div>
-          <div className="truncate font-serif text-xs italic text-[--color-text-soft]">
+          <div className="truncate font-serif text-xs italic text-[var(--color-text-soft)]">
             {now?.track?.artist ?? (isLoading ? "" : "—")}
           </div>
         </div>

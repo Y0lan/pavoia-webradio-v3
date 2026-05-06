@@ -33,15 +33,15 @@ export function HomePage() {
 
       <div className="relative z-10 flex min-h-dvh flex-col px-6 py-10 md:px-12 md:py-16">
         {/* Top metadata strip */}
-        <header className="font-mono text-[10px] uppercase tracking-[0.25em] text-[--color-text-faint]">
+        <header className="font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
           // pavoia · webradio · est. 2026 · curated by{" "}
-          <span className="text-[--color-accent]">gaende</span>
+          <span className="text-[var(--color-accent)]">gaende</span>
         </header>
 
         {/* Hero — eleven stages, one night */}
         <div className="mt-auto">
           <h1
-            className="font-mono font-bold leading-[0.85] tracking-[0.05em] text-[--color-accent]"
+            className="font-mono font-bold leading-[0.85] tracking-[0.05em] text-[var(--color-accent)]"
             style={{
               fontSize: "clamp(3rem, 13vw, 10rem)",
               textShadow: "0 0 60px rgba(232,80,32,0.25)",
@@ -51,18 +51,18 @@ export function HomePage() {
           </h1>
 
           <p
-            className="mt-6 max-w-xl font-serif text-2xl italic leading-snug text-[--color-text] md:text-3xl"
+            className="mt-6 max-w-xl font-serif text-2xl italic leading-snug text-[var(--color-text)] md:text-3xl"
           >
             eleven stages,
             <br />
             one night,
             <br />
-            <span className="text-[--color-text-soft]">
+            <span className="text-[var(--color-text-soft)]">
               picked apart from the algorithm.
             </span>
           </p>
 
-          <p className="mt-8 max-w-md font-sans text-sm leading-relaxed text-[--color-text-soft]">
+          <p className="mt-8 max-w-md font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
             A curator's collection played as radio — full albums, hidden
             B-sides, forgotten 90s vinyl, daily diggings. Tune into a
             stage, the rest of the night carries on around you.
@@ -70,12 +70,12 @@ export function HomePage() {
 
           <div className="mt-10 flex items-center gap-3">
             <span
-              className="animate-blink font-mono text-sm text-[--color-accent]"
+              className="animate-blink font-mono text-sm text-[var(--color-accent)]"
               aria-hidden="true"
             >
               ▸
             </span>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[--color-text-faint]">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]">
               {isLoading
                 ? "loading stages…"
                 : isError

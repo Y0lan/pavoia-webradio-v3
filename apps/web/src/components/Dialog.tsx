@@ -19,6 +19,19 @@ interface DialogProps {
 export function Dialog({ open, onClose, ariaLabel, children }: DialogProps) {
   const ref = useRef<HTMLDialogElement | null>(null);
 
+  // Dedupe onClose. Without this, a click on the close button fires
+  // a chain: button onClick → parent setState → useEffect calls
+  // el.close() → element fires "close" event → onCloseEvent calls
+  // onClose() AGAIN. The ref short-circuits any subsequent emissions
+  // until the dialog reopens.
+  const closingRef = useRef(false);
+
+  // Reset the dedupe flag whenever the dialog opens — otherwise the
+  // second open in a session would have onClose suppressed.
+  useEffect(() => {
+    if (open) closingRef.current = false;
+  }, [open]);
+
   // Sync `open` → element state. showModal() rejects if already open;
   // close() is a no-op if closed, so guard with .open.
   useEffect(() => {
@@ -31,14 +44,24 @@ export function Dialog({ open, onClose, ariaLabel, children }: DialogProps) {
     }
   }, [open]);
 
-  // Native close events fire on ESC and on dialog.close(). Forward
-  // to onClose so our controlling parent stays in sync.
+  const handleClose = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    onClose();
+  };
+
+  // Native close events fire on ESC and on dialog.close(). Route
+  // through handleClose so the dedupe flag prevents a double emit.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const onCloseEvent = () => onClose();
+    const onCloseEvent = () => handleClose();
     el.addEventListener("close", onCloseEvent);
     return () => el.removeEventListener("close", onCloseEvent);
+    // handleClose closes over onClose (stable for our usage), and
+    // we WANT this effect re-attached if the consumer's onClose
+    // changes — eslint-react-hooks would catch a stale closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose]);
 
   // Click-outside-to-dismiss: when the click target IS the dialog
@@ -47,7 +70,7 @@ export function Dialog({ open, onClose, ariaLabel, children }: DialogProps) {
   // pattern below works in all evergreen browsers.
   const onBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
     if (e.target === ref.current) {
-      onClose();
+      handleClose();
     }
   };
 

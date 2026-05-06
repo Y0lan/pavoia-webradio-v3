@@ -30,7 +30,7 @@ export function BusMysteryCard({ open, onClose }: BusMysteryCardProps) {
         <button
           type="button"
           onClick={onClose}
-          className="mx-auto block border border-[var(--color-amber)] border-opacity-40 px-5 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-amber)] transition-colors hover:bg-[var(--color-amber)] hover:bg-opacity-10"
+          className="mx-auto block border border-[rgba(255,170,0,0.4)] px-5 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-amber)] transition-colors hover:bg-[rgba(255,170,0,0.1)]"
         >
           got it
         </button>

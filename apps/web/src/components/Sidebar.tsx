@@ -56,7 +56,7 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
             // loading stages…
           </div>
         ) : isError ? (
-          <div className="mx-3 my-3 rounded-sm border border-[var(--color-amber)] border-opacity-30 bg-[var(--color-bg-soft)] px-4 py-3">
+          <div className="mx-3 my-3 rounded-sm border border-[rgba(255,170,0,0.3)] bg-[var(--color-bg-soft)] px-4 py-3">
             <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-[var(--color-amber)]">
               // engine unreachable
             </div>

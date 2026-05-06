@@ -105,27 +105,34 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
       const audio = audioRef.current;
       if (!audio) return;
 
-      streamVersionRef.current += 1;
-      const versionAtCall = streamVersionRef.current;
-
       // Same stage already playing? No-op — clicking play on the
       // active stage means "you already are".
       if (playingStageId === stageId && state === "playing") return;
 
-      // Same stage but paused → just resume; no need to re-attach.
+      // Same stage but paused → just resume; no need to re-attach,
+      // no need to bump the stream version (doing so would
+      // invalidate the active stream's HLS error handler).
       if (playingStageId === stageId && hlsRef.current !== null) {
+        const versionAtCall = streamVersionRef.current;
         setState("loading");
+        setError(null);
         try {
           await audio.play();
         } catch (err) {
           if (versionAtCall !== streamVersionRef.current) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
           setState("error");
           setError(err instanceof Error ? err.message : String(err));
         }
         return;
       }
 
-      // Different stage (or first play) → switch streams.
+      // Different stage (or first play) → switch streams. Bump the
+      // version NOW so any in-flight rejection from the old stream
+      // can detect it's stale.
+      streamVersionRef.current += 1;
+      const versionAtCall = streamVersionRef.current;
+
       teardown();
       setError(null);
       setPlayingStageId(stageId);
@@ -199,9 +206,11 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
     if (!audio || playingStageId === null) return;
     if (state === "playing" || state === "loading" || state === "idle") return;
 
-    streamVersionRef.current += 1;
+    // Resume on the SAME stream — don't bump the version (would
+    // invalidate the active hls.js ERROR handler).
     const versionAtCall = streamVersionRef.current;
     setState("loading");
+    setError(null);
     try {
       await audio.play();
     } catch (err) {

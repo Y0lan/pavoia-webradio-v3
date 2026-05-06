@@ -36,7 +36,10 @@ export function PersistentPlayerBar() {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--color-card-border-strong)] bg-[var(--color-bg-soft)]/95 backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 md:gap-4 md:px-6">
+      <div
+        className="mx-auto flex max-w-6xl items-center gap-3 px-4 pt-3 md:gap-4 md:px-6"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.75rem)" }}
+      >
         {/* On-air indicator */}
         <div
           className="flex shrink-0 items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]"

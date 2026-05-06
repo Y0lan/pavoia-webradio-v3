@@ -1,6 +1,7 @@
 import type { Stage } from "@pavoia/shared";
 
 import { useHls } from "../audio/useHls.ts";
+import { EqualizerBars } from "./EqualizerBars.tsx";
 import { PlayPauseButton } from "./PlayPauseButton.tsx";
 
 interface StagePlayerProps {
@@ -38,8 +39,13 @@ export function StagePlayer({ stage, streamUrl }: StagePlayerProps) {
         aria-live="polite"
         aria-atomic="true"
       >
-        <div className="text-sm font-medium text-slate-200">
-          {labelForState(state, stage)}
+        <div className="flex items-center gap-2">
+          {state === "playing" ? (
+            <EqualizerBars color={stage.accent} />
+          ) : null}
+          <div className="text-sm font-medium text-slate-200">
+            {labelForState(state, stage)}
+          </div>
         </div>
         {error ? (
           <p className="mt-0.5 truncate text-xs text-rose-400/80">{error}</p>

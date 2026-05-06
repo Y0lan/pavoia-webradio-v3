@@ -4,39 +4,39 @@ import type { Stage } from "@pavoia/shared";
 interface StageItemProps {
   stage: Stage;
   isActive: boolean;
+  /** Triggered when the listener clicks the disabled Bus row. */
+  onOpenBus: () => void;
 }
 
 /**
  * A single stage row in the sidebar. v1's pattern, modernized:
  *   - left accent border in the stage's own color
  *   - active state fills the row with a subtle accent tint
- *   - disabled stages (Bus) render but don't navigate
- *
- * Hover preview popover is deferred to Slice F.
+ *   - disabled stages (Bus) render but don't navigate; clicking
+ *     opens the BusMysteryCard dialog instead
  */
-export function StageItem({ stage, isActive }: StageItemProps) {
+export function StageItem({ stage, isActive, onOpenBus }: StageItemProps) {
   const accent = stage.accent;
   const baseClasses =
-    "group block rounded-lg border-l-4 bg-slate-900/40 px-4 py-3 transition-all hover:bg-slate-800/60";
+    "group block w-full text-left rounded-lg border-l-4 bg-slate-900/40 px-4 py-3 transition-all hover:bg-slate-800/60";
   const activeClasses = isActive
     ? "ring-1 ring-inset"
     : "";
 
   if (stage.disabled) {
-    // Bus is a UI-only easter egg — interactive but not navigable.
-    // Slice F will wire up the BusMysteryCard dialog. For now,
-    // render visually but disable navigation to /stage/:id.
+    // Bus is a UI-only easter egg — render as a button that opens
+    // the mystery dialog instead of navigating to /stage/bus.
     return (
-      <div
-        role="button"
-        aria-disabled="true"
-        className={`${baseClasses} ${activeClasses} cursor-default opacity-60`}
+      <button
+        type="button"
+        onClick={onOpenBus}
+        className={`${baseClasses} ${activeClasses} cursor-pointer opacity-80 hover:opacity-100`}
         style={{
           borderLeftColor: accent,
         }}
       >
         <Inner stage={stage} />
-      </div>
+      </button>
     );
   }
 

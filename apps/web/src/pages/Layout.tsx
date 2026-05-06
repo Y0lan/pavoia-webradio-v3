@@ -1,20 +1,28 @@
+import { useEffect, useState } from "react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 
+import { BusMysteryCard } from "../components/BusMysteryCard.tsx";
+import { InfoDialog } from "../components/InfoDialog.tsx";
+import { MobileDrawer } from "../components/MobileDrawer.tsx";
+import { MobileHeader } from "../components/MobileHeader.tsx";
 import { Sidebar } from "../components/Sidebar.tsx";
 
 /**
- * Outer page chrome: sidebar + main outlet. Identifies the active
- * stage from the routed location (typed via TanStack Router's
- * generated tree) instead of a raw routeId string match.
+ * Outer page chrome: mobile header + drawer (or desktop sidebar) +
+ * main outlet + dialogs. Identifies the active stage from the
+ * routed location (typed via TanStack Router) instead of a raw
+ * routeId string match.
  *
- * Mobile becomes a stack (sidebar on top, content below) until
- * Slice E replaces it with a proper drawer.
+ * State machine for ephemeral overlays:
+ *   - drawerOpen: mobile slide-in menu
+ *   - infoOpen:   about/credits dialog (triggered from sidebar
+ *                 footer "i" button)
+ *   - busOpen:    Bus stage easter egg (triggered when listener
+ *                 clicks the disabled Bus row)
  */
 export function Layout() {
   const activeStageId = useRouterState({
     select: (state) => {
-      // The stage-detail route declares params { stageId: string };
-      // TanStack hands us the merged params for the current match.
       const params = state.matches[state.matches.length - 1]?.params as
         | { stageId?: string }
         | undefined;
@@ -22,12 +30,45 @@ export function Layout() {
     },
   });
 
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [busOpen, setBusOpen] = useState(false);
+
+  // Auto-close the drawer when the route changes (i.e. the user
+  // tapped a stage). Without this the drawer stays open over the
+  // newly-routed content, which is jarring.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [activeStageId]);
+
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
-      <Sidebar activeStageId={activeStageId} />
+      <MobileHeader onOpenDrawer={() => setDrawerOpen(true)} />
+
+      {/* Desktop sidebar — visible at md+. */}
+      <div className="hidden md:flex md:flex-col">
+        <Sidebar
+          activeStageId={activeStageId}
+          onOpenInfo={() => setInfoOpen(true)}
+          onOpenBus={() => setBusOpen(true)}
+        />
+      </div>
+
+      {/* Mobile drawer — same Sidebar content, slide-in panel. */}
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+        <Sidebar
+          activeStageId={activeStageId}
+          onOpenInfo={() => setInfoOpen(true)}
+          onOpenBus={() => setBusOpen(true)}
+        />
+      </MobileDrawer>
+
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>
+
+      <InfoDialog open={infoOpen} onClose={() => setInfoOpen(false)} />
+      <BusMysteryCard open={busOpen} onClose={() => setBusOpen(false)} />
     </div>
   );
 }

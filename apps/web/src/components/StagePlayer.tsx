@@ -28,7 +28,16 @@ export function StagePlayer({ stage, streamUrl }: StagePlayerProps) {
         }}
         onPause={pause}
       />
-      <div className="min-w-0 flex-1">
+      {/* Live region so screen readers announce state transitions
+          (buffering, paused, playback error) without needing focus
+          on the button. polite + atomic = read the full status text
+          when it changes, don't interrupt mid-utterance. */}
+      <div
+        className="min-w-0 flex-1"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <div className="text-sm font-medium text-slate-200">
           {labelForState(state, stage)}
         </div>

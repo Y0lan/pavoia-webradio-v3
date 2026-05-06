@@ -40,6 +40,10 @@ export interface UseHlsResult {
 export function useHls(streamUrl: string): UseHlsResult {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  // Bumped on every streamUrl change so a play() rejection from a
+  // torn-down stream (e.g. user clicked play, then immediately
+  // switched stages) can't stamp the fresh stream as errored.
+  const streamVersionRef = useRef(0);
   const [state, setState] = useState<PlaybackState>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +53,7 @@ export function useHls(streamUrl: string): UseHlsResult {
   // where the listeners' empty-deps effect could miss a late-mounted
   // ref (e.g. under React.lazy + Suspense).
   useEffect(() => {
+    streamVersionRef.current += 1;
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -97,11 +102,23 @@ export function useHls(streamUrl: string): UseHlsResult {
       hls.attachMedia(audio);
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (cancelled) return;
-        if (data.fatal) {
-          setState("error");
-          setError(`${data.type}: ${data.details}`);
-          // Don't tear down — caller may try again. hls.js will
-          // attempt media recovery itself on some fatal errors.
+        if (!data.fatal) return;
+        // hls.js exposes recovery APIs for the two common fatal
+        // types. Try them once before falling through to a terminal
+        // error state — this catches transient network blips and
+        // the occasional decoder hiccup without losing playback.
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            hls.startLoad();
+            setState("loading");
+            return;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hls.recoverMediaError();
+            setState("loading");
+            return;
+          default:
+            setState("error");
+            setError(`${data.type}: ${data.details}`);
         }
       });
     } else if (audio.canPlayType("application/vnd.apple.mpegurl")) {
@@ -135,15 +152,25 @@ export function useHls(streamUrl: string): UseHlsResult {
   const play = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio) return;
+    // Snapshot the stream version before we await play(). If the
+    // user switches stages mid-await, the rejection that fires when
+    // the old element gets paused/unloaded must NOT clobber the
+    // fresh stream's state.
+    const versionAtCall = streamVersionRef.current;
     setState("loading");
     setError(null);
     try {
       await audio.play();
     } catch (err) {
-      // Most common failure: NotAllowedError before user gesture.
-      // We surface it as an error state; the button will re-render
-      // its "Play" affordance and the next click usually succeeds
-      // because the gesture chain is now valid.
+      // Stale rejection from a torn-down stream — drop silently.
+      if (versionAtCall !== streamVersionRef.current) return;
+      // AbortError fires when the audio's src is yanked while a play
+      // promise is in flight. Same source: stale, drop silently.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      // Most common real failure: NotAllowedError before user gesture.
+      // Surface it as an error state; the button will re-render its
+      // "Play" affordance and the next click usually succeeds because
+      // the gesture chain is now valid.
       setState("error");
       setError(err instanceof Error ? err.message : String(err));
     }

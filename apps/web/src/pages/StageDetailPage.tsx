@@ -1,8 +1,18 @@
 import { useParams } from "@tanstack/react-router";
 
+import { lazy, Suspense } from "react";
+
 import { useStages } from "../api/stages.ts";
 import { useStageNow } from "../api/now.ts";
 import { NowPlaying } from "../components/NowPlaying.tsx";
+
+// Lazy-load the player + hls.js so the home and sidebar bundles
+// don't pay the ~500 KB HLS cost. Only listeners who navigate to
+// a stage detail page pull in the audio code.
+const StagePlayer = lazy(async () => {
+  const mod = await import("../components/StagePlayer.tsx");
+  return { default: mod.StagePlayer };
+});
 
 /**
  * Per-stage detail page. Slice C will fill this with a NowPlaying
@@ -133,7 +143,18 @@ function StageNowSection({ stageId, stage }: StageNowSectionProps) {
 
   return (
     <>
-      <NowPlaying stage={stage} payload={data} />
+      <div className="rounded-2xl border border-slate-800/60 bg-black/40 p-6 backdrop-blur-sm md:p-8">
+        <Suspense
+          fallback={
+            <p className="text-sm text-slate-500">Loading player…</p>
+          }
+        >
+          <StagePlayer stage={stage} streamUrl={data.streamUrl} />
+        </Suspense>
+      </div>
+      <div className="mt-4">
+        <NowPlaying stage={stage} payload={data} />
+      </div>
       {error ? (
         <p className="mt-2 text-xs text-amber-300/80">
           ⚠ Live updates are stalled (engine unreachable). Track shown is

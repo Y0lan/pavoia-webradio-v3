@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 
 import { useStageNow } from "../api/now.ts";
-import { coverProxyUrl } from "../api/plex.ts";
 import { useStages } from "../api/stages.ts";
 import { usePlayback } from "../audio/PlaybackProvider.tsx";
+import { CoverImage } from "./CoverImage.tsx";
 import { EqualizerBars } from "./EqualizerBars.tsx";
 
 /**
@@ -54,30 +54,22 @@ export function PersistentPlayerBar() {
           <span className="hidden sm:inline">on air</span>
         </div>
 
-        {/* Cover — Plex thumb when available, gradient otherwise. Tap to
-            jump to the playing stage's detail page. */}
+        {/* Cover — Plex thumb when available, stage gradient otherwise.
+            Tap to jump to the playing stage's detail page. */}
         <Link
           to="/stage/$stageId"
           params={{ stageId: stage.id }}
-          className="relative size-12 shrink-0 overflow-hidden rounded-sm shadow-md ring-1 ring-[var(--color-card-border)]"
           aria-label={`Go to ${stage.fallbackTitle}`}
-          style={
-            now?.track && coverProxyUrl(now.track.coverUrl)
-              ? undefined
-              : {
-                  backgroundImage: `linear-gradient(135deg, ${stage.gradient.from}, ${stage.gradient.via}, ${stage.gradient.to})`,
-                }
-          }
+          className="shrink-0"
         >
-          {now?.track && coverProxyUrl(now.track.coverUrl) ? (
-            <img
-              src={coverProxyUrl(now.track.coverUrl) ?? undefined}
-              alt=""
-              className="size-full object-cover"
-              loading="lazy"
-              decoding="async"
-            />
-          ) : null}
+          <CoverImage
+            plexCoverUrl={now?.track?.coverUrl}
+            className="size-12 rounded-sm shadow-md ring-1 ring-[var(--color-card-border)]"
+            style={{
+              backgroundImage: `linear-gradient(135deg, ${stage.gradient.from}, ${stage.gradient.via}, ${stage.gradient.to})`,
+            }}
+            fallback={null}
+          />
         </Link>
 
         {/* Track meta */}

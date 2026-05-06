@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { NowPlaying as NowPlayingPayload, Stage } from "@pavoia/shared";
 
-import { coverProxyUrl } from "../api/plex.ts";
 import { usePlayback } from "../audio/PlaybackProvider.tsx";
 import { useArtistDrawer } from "./ArtistDrawer.tsx";
+import { CoverImage } from "./CoverImage.tsx";
 import { EqualizerBars } from "./EqualizerBars.tsx";
 
 /* Local TrackProgress — small enough to inline. Updates every second
@@ -94,8 +94,6 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
   const isPlaying = displayState === "playing";
   const isLoading = displayState === "loading";
 
-  const coverSrc = track ? coverProxyUrl(track.coverUrl) : null;
-
   const onTogglePlay = () => {
     if (isThisStageActive) {
       if (isPlaying) {
@@ -133,31 +131,23 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
         {stage.fallbackTitle.toLowerCase()}
       </h1>
 
-      {/* Cover art — Plex thumb when available, vinyl gradient otherwise. */}
+      {/* Cover art — Plex thumb when available; vinyl gradient when
+          missing OR when the proxy returns 404/502/etc. */}
       <div className="relative my-10 w-full max-w-sm md:my-14 md:max-w-md">
-        <div
-          className="relative aspect-square w-full overflow-hidden rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
+        <CoverImage
+          plexCoverUrl={track?.coverUrl}
+          className="aspect-square w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
+          loading="eager"
           style={{
-            backgroundImage: coverSrc
-              ? undefined
-              : `
-                  radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
-                  radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
-                  ${stage.gradient.to}
-                `,
-            backgroundColor: coverSrc ? "var(--color-bg-soft)" : undefined,
+            backgroundImage: `
+              radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
+              radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
+              ${stage.gradient.to}
+            `,
           }}
-        >
-          {coverSrc ? (
-            <img
-              src={coverSrc}
-              alt=""
-              className="size-full object-cover"
-              loading="eager"
-              decoding="async"
-            />
-          ) : (
-            // Vinyl-record concentric circles fallback when no cover.
+          fallback={
+            // Vinyl-record concentric circles, when no Plex thumb is
+            // available or the image load failed.
             <div className="relative size-full">
               <div
                 className="absolute inset-[14%] rounded-full opacity-30"
@@ -171,8 +161,8 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
               />
               <div className="absolute inset-[48%] rounded-full bg-black" />
             </div>
-          )}
-        </div>
+          }
+        />
 
         {/* EQ bars overlaid on the bottom-right corner of the cover when
             playing — extra visual signal at arm's length. */}

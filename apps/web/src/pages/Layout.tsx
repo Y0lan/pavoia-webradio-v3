@@ -1,24 +1,26 @@
 import { useEffect, useState } from "react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 
+import { usePlayback } from "../audio/PlaybackProvider.tsx";
 import { BusMysteryCard } from "../components/BusMysteryCard.tsx";
 import { InfoDialog } from "../components/InfoDialog.tsx";
 import { MobileDrawer } from "../components/MobileDrawer.tsx";
 import { MobileHeader } from "../components/MobileHeader.tsx";
+import { PersistentPlayerBar } from "../components/PersistentPlayerBar.tsx";
 import { Sidebar } from "../components/Sidebar.tsx";
 
 /**
- * Outer page chrome: mobile header + drawer (or desktop sidebar) +
- * main outlet + dialogs. Identifies the active stage from the
- * routed location (typed via TanStack Router) instead of a raw
- * routeId string match.
+ * Outer chrome — sidebar + main outlet + persistent mini-player.
  *
- * State machine for ephemeral overlays:
- *   - drawerOpen: mobile slide-in menu
- *   - infoOpen:   about/credits dialog (triggered from sidebar
- *                 footer "i" button)
- *   - busOpen:    Bus stage easter egg (triggered when listener
- *                 clicks the disabled Bus row)
+ * Three pieces of overlay state live here:
+ *   - drawerOpen : mobile slide-in nav
+ *   - infoOpen   : about dialog (sidebar footer button)
+ *   - busOpen    : the Bus stage easter egg
+ *
+ * The PersistentPlayerBar at the bottom shows whatever is currently
+ * audible across the whole app — the v1 "exploring" pattern. When
+ * the listener is on the same stage that's playing, the bar still
+ * shows up (it's the cross-page identity of "what's on air right now").
  */
 export function Layout() {
   const activeStageId = useRouterState({
@@ -29,23 +31,26 @@ export function Layout() {
       return params?.stageId ?? null;
     },
   });
+  const { playingStageId } = usePlayback();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [busOpen, setBusOpen] = useState(false);
 
-  // Auto-close the drawer when the route changes (i.e. the user
-  // tapped a stage). Without this the drawer stays open over the
-  // newly-routed content, which is jarring.
+  // Auto-close the drawer on route change.
   useEffect(() => {
     setDrawerOpen(false);
   }, [activeStageId]);
 
+  // Add bottom padding when the persistent bar is visible so content
+  // doesn't slide under it. Use a tailwind class via state attr.
+  const playerBarVisible = playingStageId !== null;
+
   return (
-    <div className="flex min-h-dvh flex-col md:flex-row">
+    <div className="relative flex min-h-dvh flex-col md:flex-row">
       <MobileHeader onOpenDrawer={() => setDrawerOpen(true)} />
 
-      {/* Desktop sidebar — visible at md+. */}
+      {/* Desktop sidebar */}
       <div className="hidden md:flex md:flex-col">
         <Sidebar
           activeStageId={activeStageId}
@@ -54,7 +59,7 @@ export function Layout() {
         />
       </div>
 
-      {/* Mobile drawer — same Sidebar content, slide-in panel. */}
+      {/* Mobile drawer wraps the same Sidebar */}
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <Sidebar
           activeStageId={activeStageId}
@@ -63,10 +68,16 @@ export function Layout() {
         />
       </MobileDrawer>
 
-      <main className="flex-1 overflow-hidden">
+      <main
+        className="flex-1 overflow-hidden"
+        style={{
+          paddingBottom: playerBarVisible ? "5.5rem" : undefined,
+        }}
+      >
         <Outlet />
       </main>
 
+      <PersistentPlayerBar />
       <InfoDialog open={infoOpen} onClose={() => setInfoOpen(false)} />
       <BusMysteryCard open={busOpen} onClose={() => setBusOpen(false)} />
     </div>

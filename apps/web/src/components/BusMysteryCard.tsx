@@ -6,30 +6,33 @@ interface BusMysteryCardProps {
 }
 
 /**
- * v1's Bus easter egg, ported. The Bus stage has no audio (it's
- * disabled in the catalog) — when the listener clicks it from the
- * sidebar, this card surfaces a hint that some things are not for
- * the webradio. Click anywhere to dismiss.
+ * Bus easter egg, GAENDE-aesthetic. The Bus stage has no audio;
+ * tapping it pops this dialog instead of routing to a 404.
  */
 export function BusMysteryCard({ open, onClose }: BusMysteryCardProps) {
   return (
     <Dialog open={open} onClose={onClose} ariaLabel="Bus stage">
       <div className="space-y-5 text-center">
-        <div className="text-6xl leading-none">🚌</div>
-        <div>
-          <h2 className="text-xl font-semibold text-slate-100">
-            The bus
-          </h2>
-          <p className="mt-2 text-balance text-sm leading-relaxed text-slate-400">
-            Some things must be experienced in person.
-          </p>
-        </div>
+        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-text-faint)]">
+          // stage 11 · 🚌
+        </p>
+
+        <h2 className="font-serif text-3xl italic text-[var(--color-text)]">
+          the bus
+        </h2>
+
+        <p
+          className="border-l-2 border-[var(--color-amber)] mx-auto inline-block pl-4 text-left font-serif text-base italic leading-relaxed text-[var(--color-text-soft)]"
+        >
+          "Some things must be experienced in person."
+        </p>
+
         <button
           type="button"
           onClick={onClose}
-          className="mx-auto block rounded-full border border-amber-700/60 bg-amber-950/40 px-5 py-2 text-sm text-amber-200 transition-colors hover:bg-amber-900/40"
+          className="mx-auto block border border-[rgba(255,170,0,0.4)] px-5 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-amber)] transition-colors hover:bg-[rgba(255,170,0,0.1)]"
         >
-          Got it
+          got it
         </button>
       </div>
     </Dialog>

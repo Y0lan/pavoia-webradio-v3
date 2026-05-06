@@ -1,25 +1,24 @@
-import type { PlaybackState } from "../audio/useHls.ts";
+import type { PlaybackState } from "../audio/PlaybackProvider.tsx";
 
 interface PlayPauseButtonProps {
   state: PlaybackState;
   accent: string;
   onPlay: () => void;
   onPause: () => void;
-  /** Disabled when the underlying stream URL isn't yet available. */
   disabled?: boolean;
+  /** "lg" for the StageDetailPage hero (~80 px); "md" for inline use. */
+  size?: "md" | "lg";
 }
 
 /**
- * Single circular button with three visual states:
- *   - idle / paused / error → play triangle (accent-colored fill)
- *   - loading             → spinner ring
- *   - playing             → pause bars
+ * Round play/pause with the GAENDE accent ring + soft glow when
+ * playing. No card chrome — the button IS the affordance, lets the
+ * stage's gradient backdrop show through.
  *
- * v1's button had finer-grained loading detection but for radio's
- * essentially-binary user model (you're listening or you're not),
- * this is simpler and the listener gets exactly the affordance they
- * expected. Slice E adds an EqualizerBars decoration for the
- * "playing" state.
+ * Three visual states:
+ *   - idle / paused / error → play triangle
+ *   - loading              → spinner ring
+ *   - playing              → pause bars
  */
 export function PlayPauseButton({
   state,
@@ -27,11 +26,16 @@ export function PlayPauseButton({
   onPlay,
   onPause,
   disabled = false,
+  size = "md",
 }: PlayPauseButtonProps) {
   const isPlaying = state === "playing";
   const isLoading = state === "loading";
-
   const ariaLabel = isPlaying ? "Pause" : "Play";
+
+  const dim = size === "lg" ? 80 : 56;
+  const iconSize = size === "lg" ? 32 : 22;
+  const ariaPressedAttr =
+    state === "playing" ? "true" : state === "paused" ? "false" : undefined;
 
   return (
     <button
@@ -39,78 +43,63 @@ export function PlayPauseButton({
       onClick={isPlaying ? onPause : onPlay}
       disabled={disabled}
       aria-label={ariaLabel}
-      aria-pressed={isPlaying}
-      className="group relative flex h-16 w-16 items-center justify-center rounded-full border border-slate-700 bg-slate-900/80 text-slate-100 transition-all hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-50 md:h-20 md:w-20"
-      style={
-        isPlaying
-          ? {
-              borderColor: accent,
-              backgroundColor: `${accent}22`,
-            }
-          : undefined
-      }
+      {...(ariaPressedAttr !== undefined ? { "aria-pressed": ariaPressedAttr } : {})}
+      className="group relative flex items-center justify-center rounded-full transition-all duration-200 hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+      style={{
+        width: dim,
+        height: dim,
+        border: `2px solid ${accent}`,
+        backgroundColor: isPlaying ? `${accent}20` : `${accent}0d`,
+        boxShadow: isPlaying ? `0 0 24px ${accent}33` : `0 0 12px ${accent}1a`,
+      }}
     >
-      {isLoading ? <Spinner accent={accent} /> : null}
-      {!isLoading && isPlaying ? <PauseIcon /> : null}
-      {!isLoading && !isPlaying ? <PlayIcon accent={accent} /> : null}
+      {isLoading ? (
+        <svg
+          width={iconSize}
+          height={iconSize}
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          className="animate-spin"
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="9"
+            stroke="rgba(232,221,212,0.2)"
+            strokeWidth="2"
+            fill="none"
+          />
+          <path
+            d="M21 12a9 9 0 0 0-9-9"
+            stroke={accent}
+            strokeWidth="2"
+            strokeLinecap="round"
+            fill="none"
+          />
+        </svg>
+      ) : isPlaying ? (
+        <svg
+          viewBox="0 0 24 24"
+          width={iconSize}
+          height={iconSize}
+          fill={accent}
+          aria-hidden="true"
+        >
+          <rect x="6" y="4" width="4" height="16" rx="1" />
+          <rect x="14" y="4" width="4" height="16" rx="1" />
+        </svg>
+      ) : (
+        <svg
+          viewBox="0 0 24 24"
+          width={iconSize + 2}
+          height={iconSize + 2}
+          fill={accent}
+          aria-hidden="true"
+          className="ml-1"
+        >
+          <path d="M8 5.14v13.72L19 12 8 5.14z" />
+        </svg>
+      )}
     </button>
-  );
-}
-
-function PlayIcon({ accent }: { accent: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="28"
-      height="28"
-      fill={accent}
-      aria-hidden="true"
-      className="ml-1 transition-transform group-hover:scale-110"
-    >
-      <path d="M8 5.14v13.72L19 12 8 5.14z" />
-    </svg>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="24"
-      height="24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <rect x="6" y="4" width="4" height="16" rx="1" />
-      <rect x="14" y="4" width="4" height="16" rx="1" />
-    </svg>
-  );
-}
-
-function Spinner({ accent }: { accent: string }) {
-  return (
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className="animate-spin"
-    >
-      <circle
-        cx="12"
-        cy="12"
-        r="9"
-        stroke="#475569"
-        strokeWidth="3"
-        fill="none"
-      />
-      <path
-        d="M21 12a9 9 0 0 0-9-9"
-        stroke={accent}
-        strokeWidth="3"
-        strokeLinecap="round"
-        fill="none"
-      />
-    </svg>
   );
 }

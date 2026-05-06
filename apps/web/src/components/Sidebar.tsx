@@ -2,60 +2,80 @@ import { useStages } from "../api/stages.ts";
 import { StageItem } from "./StageItem.tsx";
 
 interface SidebarProps {
-  /** id of the currently-routed stage, or null if no stage selected */
   activeStageId: string | null;
-  /** Open the about/credits dialog (footer "i" button). */
   onOpenInfo: () => void;
-  /** Open the Bus stage easter egg (clicked from the disabled row). */
   onOpenBus: () => void;
 }
 
 /**
- * Renders the static catalog of stages from /api/stages — the
- * source of truth for icons/accents/gradients/order is the server
- * (which gets it from packages/shared/stages.ts).
- *
- * Layout uses this same component for both the desktop sidebar
- * (md:flex) and the mobile drawer's panel content; the drawer
- * provides its own animation + backdrop chrome around it.
+ * Stage list — terminal-style sidebar matching the GAENDE press-kit
+ * brief. Wordmark + caret cursor, numbered stages, mono `//` and `$`
+ * flourishes for hierarchy. Same component renders in the desktop
+ * sidebar slot AND inside the mobile drawer.
  */
 export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) {
   const { data: stages, isLoading, isError, error } = useStages();
 
   return (
     <aside
-      className="flex h-full w-full flex-col bg-[#0a0410] md:w-80 md:border-r md:border-slate-800"
+      className="flex h-full w-full flex-col bg-[var(--color-bg)] md:w-80 md:border-r md:border-[var(--color-card-border)]"
       aria-label="Stages"
     >
-      <header className="hidden items-center px-6 py-5 md:flex">
-        <h1 className="bg-gradient-to-r from-fuchsia-400 to-amber-300 bg-clip-text text-xl font-bold tracking-tight text-transparent">
-          Pavoia
-        </h1>
+      {/* Wordmark — JetBrains Mono GAENDE-style, with blinking caret */}
+      <header className="px-5 pb-3 pt-6 md:pb-5 md:pt-8">
+        <div className="flex items-baseline gap-3">
+          <span
+            className="animate-blink font-mono text-xs text-[var(--color-accent)]"
+            aria-hidden="true"
+          >
+            ▸
+          </span>
+          <h1
+            className="font-mono text-2xl font-bold tracking-[0.2em] text-[var(--color-accent)]"
+            style={{ textShadow: "0 0 24px rgba(232,80,32,0.25)" }}
+          >
+            PAVOIA
+          </h1>
+        </div>
+        <p className="mt-1.5 pl-7 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-text-faint)]">
+          // gaende's webradio · 11 stages
+        </p>
       </header>
 
-      <nav className="flex-1 overflow-y-auto px-3 pt-3 pb-6 md:pt-0">
+      <div className="px-5 pb-2 pt-3">
+        <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--color-text-faint)]">
+          <span className="h-px flex-1 bg-[var(--color-card-border-strong)]" />
+          <span>stages</span>
+          <span className="h-px flex-1 bg-[var(--color-card-border-strong)]" />
+        </div>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto py-1">
         {isLoading ? (
-          <div className="px-3 py-2 text-sm text-slate-500">
-            Loading stages…
+          <div className="px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-[var(--color-text-faint)]">
+            // loading stages…
           </div>
         ) : isError ? (
-          <div className="rounded-lg border border-rose-900/60 bg-rose-950/30 px-3 py-2 text-sm text-rose-300">
-            <div className="font-medium">Engine unreachable</div>
-            <div className="mt-1 text-xs text-rose-400/80">
+          <div className="mx-3 my-3 rounded-sm border border-[rgba(255,170,0,0.3)] bg-[var(--color-bg-soft)] px-4 py-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-[var(--color-amber)]">
+              // engine unreachable
+            </div>
+            <div className="mt-2 font-sans text-xs text-[var(--color-text-soft)]">
               Is the SSH tunnel open?
             </div>
             {error instanceof Error ? (
-              <div className="mt-2 truncate text-xs text-rose-500/60">
+              <div className="mt-1 truncate font-mono text-[10px] text-[var(--color-text-faint)]">
                 {error.message}
               </div>
             ) : null}
           </div>
         ) : (
-          <ul className="space-y-1.5">
-            {(stages ?? []).map((stage) => (
+          <ul className="space-y-px">
+            {(stages ?? []).map((stage, index) => (
               <li key={stage.id}>
                 <StageItem
                   stage={stage}
+                  index={index}
                   isActive={stage.id === activeStageId}
                   onOpenBus={onOpenBus}
                 />
@@ -65,17 +85,23 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
         )}
       </nav>
 
-      <footer className="border-t border-slate-800 px-3 py-3">
+      {/* Footer — about button as a clear CTA, NOT buried */}
+      <footer className="border-t border-[var(--color-card-border)] px-3 py-3">
         <button
           type="button"
           onClick={onOpenInfo}
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-400 transition-colors hover:bg-slate-800/60 hover:text-slate-200"
+          className="group flex w-full items-center gap-2 rounded-sm px-3 py-2 transition-colors hover:bg-[var(--color-bg-soft)]"
           aria-label="About Pavoia"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-            <path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 5a1.25 1.25 0 110 2.5A1.25 1.25 0 0112 7zm1.5 11h-3v-1h.75v-4.5h-.75v-1h2.25v5.5h.75v1z" />
-          </svg>
-          About
+          <span
+            className="font-mono text-[11px] text-[var(--color-accent-dim)]"
+            aria-hidden="true"
+          >
+            ?
+          </span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-soft)] transition-colors group-hover:text-[var(--color-text)]">
+            about · readme
+          </span>
         </button>
       </footer>
     </aside>

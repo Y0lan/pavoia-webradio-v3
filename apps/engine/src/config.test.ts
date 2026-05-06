@@ -147,3 +147,45 @@ describe("loadConfig — failure modes", () => {
     if (r.ok) assert.equal(r.config.plexPollIntervalMs, 2147483647);
   });
 });
+
+describe("loadConfig — WEB_DIST_DIR", () => {
+  it("defaults webDistDir to undefined when env doesn't set it", () => {
+    const r = loadConfig(MIN_VALID);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.config.webDistDir, undefined);
+  });
+
+  it("treats empty / whitespace WEB_DIST_DIR as unset", () => {
+    const r1 = loadConfig({ ...MIN_VALID, WEB_DIST_DIR: "" });
+    const r2 = loadConfig({ ...MIN_VALID, WEB_DIST_DIR: "   " });
+    assert.equal(r1.ok, true);
+    assert.equal(r2.ok, true);
+    if (r1.ok) assert.equal(r1.config.webDistDir, undefined);
+    if (r2.ok) assert.equal(r2.config.webDistDir, undefined);
+  });
+
+  it("accepts an absolute path", () => {
+    const r = loadConfig({
+      ...MIN_VALID,
+      WEB_DIST_DIR: "/home/yolan/webradio-v3/apps/web/dist",
+    });
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(
+        r.config.webDistDir,
+        "/home/yolan/webradio-v3/apps/web/dist",
+      );
+    }
+  });
+
+  it("rejects a relative path", () => {
+    const r = loadConfig({ ...MIN_VALID, WEB_DIST_DIR: "apps/web/dist" });
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.ok(
+        r.errors.some((e) => e.includes("WEB_DIST_DIR")),
+        `expected an error mentioning WEB_DIST_DIR; got ${JSON.stringify(r.errors)}`,
+      );
+    }
+  });
+});

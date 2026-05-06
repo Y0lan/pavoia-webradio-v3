@@ -308,7 +308,13 @@ export async function bootstrap(
     ...(pollerSchedule !== undefined ? { schedule: pollerSchedule } : {}),
   });
 
-  const app = createApp({ registry, hlsRoot: config.hlsRoot });
+  const app = createApp({
+    registry,
+    hlsRoot: config.hlsRoot,
+    ...(config.webDistDir !== undefined
+      ? { webDistDir: config.webDistDir }
+      : {}),
+  });
 
   let shutdownPromise: Promise<void> | null = null;
   function shutdown(): Promise<void> {

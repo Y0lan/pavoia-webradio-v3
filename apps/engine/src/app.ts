@@ -15,6 +15,7 @@ import {
 
 import { createHlsHandler } from "./hls.ts";
 import type { StageRegistry } from "./stages/registry.ts";
+import { createWebStaticHandler } from "./web-static.ts";
 
 export type HealthBody = {
   ok: true;
@@ -53,6 +54,11 @@ export type StagesBody = {
 export interface AppDeps {
   registry?: StageRegistry;
   hlsRoot?: string;
+  /** When set, the engine serves the built Vite SPA from this dir
+   *  for any path that isn't /api/* or /hls/*. When unset, those
+   *  paths return 404 (the local-dev workflow lets Vite serve the
+   *  SPA at a different port). */
+  webDistDir?: string;
 }
 
 const PORT_PATTERN = /^[1-9]\d{0,4}$/;
@@ -74,7 +80,7 @@ export function resolvePort(raw: string | undefined): number {
 }
 
 export function createApp(deps: AppDeps = {}): Hono {
-  const { registry, hlsRoot } = deps;
+  const { registry, hlsRoot, webDistDir } = deps;
   const app = new Hono();
 
   app.get("/api/health", (c) => {
@@ -164,6 +170,24 @@ export function createApp(deps: AppDeps = {}): Hono {
       c.header("access-control-allow-origin", "*");
       return c.json({ error: "hls_unavailable" }, 503);
     });
+  }
+
+  // Reserve the /api namespace with an explicit JSON 404 BEFORE the
+  // SPA catchall takes over. Without this, an unknown /api/<typo>
+  // would land in the SPA's `*` handler and return `200 text/html`,
+  // which makes frontend bugs (and curl debugging) confusing — the
+  // operator expects JSON for everything under /api. /hls already
+  // returns 404 JSON via createHlsHandler's own notFound handler.
+  app.all("/api/*", (c) =>
+    c.json({ error: "not_found", path: c.req.path }, 404),
+  );
+
+  // SPA catchall — built Vite output (non-/api, non-/hls paths).
+  // Mounted last so /api and /hls take precedence. When webDistDir
+  // isn't set we keep the JSON not_found behavior for unknown paths
+  // (local dev with separate Vite server).
+  if (webDistDir !== undefined) {
+    app.route("/", createWebStaticHandler({ distDir: webDistDir }));
   }
 
   app.notFound((c) => c.json({ error: "not_found", path: c.req.path }, 404));

@@ -21,16 +21,18 @@ async function fetchNow(stageId: string): Promise<NowPlaying> {
  * and the SLIM_V3 spec. TanStack Query handles the visibility-pause
  * automatically: when the tab goes hidden the interval halts, when
  * it returns we refetch immediately.
+ *
+ * Pass `null` to disable the query (e.g. PersistentPlayerBar before
+ * anything has started playing). Hooks rules require the call to be
+ * unconditional, so we just gate it via `enabled`.
  */
-export function useStageNow(stageId: string) {
+export function useStageNow(stageId: string | null) {
   return useQuery({
-    queryKey: ["now", stageId],
-    queryFn: () => fetchNow(stageId),
+    queryKey: ["now", stageId ?? "__none__"],
+    queryFn: () => fetchNow(stageId ?? ""),
+    enabled: stageId !== null && stageId !== "",
     refetchInterval: 5_000,
     refetchIntervalInBackground: false,
-    // Treat the snapshot as fresh for one tick. If we leave staleTime
-    // at the global 5 s default, focus events trigger a flood of
-    // refetches; pinning to the interval keeps it predictable.
     staleTime: 5_000,
   });
 }

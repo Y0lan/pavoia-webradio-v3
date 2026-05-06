@@ -1,6 +1,8 @@
 import { useParams } from "@tanstack/react-router";
 
 import { useStages } from "../api/stages.ts";
+import { useStageNow } from "../api/now.ts";
+import { NowPlaying } from "../components/NowPlaying.tsx";
 
 /**
  * Per-stage detail page. Slice C will fill this with a NowPlaying
@@ -86,16 +88,42 @@ export function StageDetailPage() {
           {stage.fallbackDescription}
         </p>
 
-        <div className="mt-12 rounded-2xl border border-slate-800/60 bg-black/30 px-6 py-8 backdrop-blur-sm">
-          <p className="text-sm text-slate-400">
-            <span
-              className="mr-2 inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: stage.accent }}
-            />
-            now-playing card lands in Slice C; audio in Slice D.
-          </p>
+        <div className="mt-12">
+          <StageNowSection stageId={stage.id} stage={stage} />
         </div>
       </div>
     </section>
   );
+}
+
+interface StageNowSectionProps {
+  stageId: string;
+  stage: import("@pavoia/shared").Stage;
+}
+
+function StageNowSection({ stageId, stage }: StageNowSectionProps) {
+  const { data, isLoading, isError, error } = useStageNow(stageId);
+
+  if (isLoading) {
+    return (
+      <article className="rounded-2xl border border-slate-800/60 bg-black/40 p-6 backdrop-blur-sm md:p-8">
+        <p className="text-sm text-slate-500">Loading current track…</p>
+      </article>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <article className="rounded-2xl border border-rose-900/60 bg-rose-950/20 p-6 backdrop-blur-sm md:p-8">
+        <p className="text-sm font-medium text-rose-300">
+          Couldn't load the current track for this stage.
+        </p>
+        <p className="mt-1 text-xs text-rose-400/80">
+          {error instanceof Error ? error.message : "Unknown error"}
+        </p>
+      </article>
+    );
+  }
+
+  return <NowPlaying stage={stage} payload={data} />;
 }

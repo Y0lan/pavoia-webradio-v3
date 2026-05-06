@@ -32,6 +32,12 @@ export interface EngineConfig {
   /** Plex polling interval in ms. Default 60_000 (per SLIM_V3 §"Audio
    *  engine"). */
   plexPollIntervalMs: number;
+  /** Optional absolute path to the built Vite SPA's `dist/` dir. When
+   *  set, the engine serves the SPA at all non-/api, non-/hls paths
+   *  (catchall index.html for client-side routing). When unset (e.g.
+   *  local dev with `npm run web:dev`), unmatched paths return 404
+   *  and the listener uses the Vite dev server. */
+  webDistDir: string | undefined;
 }
 
 export type LoadConfigResult =
@@ -70,6 +76,21 @@ export function loadConfig(
     errors,
   );
 
+  // WEB_DIST_DIR is optional. Empty / unset → engine doesn't serve
+  // the SPA (the local dev workflow uses Vite). When set, must be
+  // an absolute path so it's unambiguous regardless of engine CWD.
+  const webDistDirRaw = env.WEB_DIST_DIR?.trim();
+  let webDistDir: string | undefined;
+  if (webDistDirRaw) {
+    if (!path.isAbsolute(webDistDirRaw)) {
+      errors.push(
+        `WEB_DIST_DIR must be an absolute path, got ${JSON.stringify(webDistDirRaw)}`,
+      );
+    } else {
+      webDistDir = webDistDirRaw;
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -83,6 +104,7 @@ export function loadConfig(
       fallbackFile: fallbackFile!,
       ffmpegBin,
       plexPollIntervalMs,
+      webDistDir,
     },
   };
 }

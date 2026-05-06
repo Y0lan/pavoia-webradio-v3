@@ -33,6 +33,7 @@ const BASE_CONFIG: EngineConfig = {
   fallbackFile: "/curating.aac",
   ffmpegBin: "ffmpeg",
   plexPollIntervalMs: 60_000,
+  webDistDir: undefined,
 };
 
 function makeTrack(plexRatingKey: number): Track {

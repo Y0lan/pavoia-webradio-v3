@@ -45,7 +45,7 @@ ln -sfn ~/.local/share/mise/installs/node/22.22.2/bin/node ~/webradio-v3/bin/nod
 ~/webradio-v3/bin/node --version   # → v22.22.2
 ```
 
-### 2. Rsync the repo + build the engine
+### 2. Rsync the repo + build the engine and the web SPA
 
 From your dev machine:
 
@@ -53,10 +53,20 @@ From your dev machine:
 rsync -av --exclude .git --exclude node_modules --exclude dist \
       --exclude '*.tsbuildinfo' \
       ./ whatbox:~/webradio-v3/
-ssh whatbox 'cd ~/webradio-v3 && npm ci && npm run build --workspace=@pavoia/engine'
+ssh whatbox 'cd ~/webradio-v3 && npm ci && \
+             npm run build --workspace=@pavoia/engine && \
+             npm run build --workspace=@pavoia/web'
 ```
 
-Verify `~/webradio-v3/apps/engine/dist/index.js` exists.
+Verify both build artifacts:
+
+- `~/webradio-v3/apps/engine/dist/index.js` (engine entry)
+- `~/webradio-v3/apps/web/dist/index.html` + hashed `assets/` (Vite SPA)
+
+The engine's Hono static handler serves the SPA from `apps/web/dist`
+when `WEB_DIST_DIR` is set in the env file (step 4). When it's unset
+the engine returns 404 for non-`/api`/`/hls` paths and the local-dev
+workflow uses `npm run web:dev` against an SSH tunnel instead.
 
 ### 3. Symlink the wrapper scripts into bin/
 

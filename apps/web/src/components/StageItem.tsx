@@ -28,6 +28,8 @@ export function StageItem({ stage, isActive }: StageItemProps) {
     // render visually but disable navigation to /stage/:id.
     return (
       <div
+        role="button"
+        aria-disabled="true"
         className={`${baseClasses} ${activeClasses} cursor-default opacity-60`}
         style={{
           borderLeftColor: accent,
@@ -42,6 +44,7 @@ export function StageItem({ stage, isActive }: StageItemProps) {
     <Link
       to="/stage/$stageId"
       params={{ stageId: stage.id }}
+      aria-current={isActive ? "page" : undefined}
       className={`${baseClasses} ${activeClasses}`}
       style={{
         borderLeftColor: accent,

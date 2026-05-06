@@ -40,14 +40,27 @@ export function StageDetailPage() {
 
   const stage = stages?.find((s) => s.id === stageId);
 
-  if (!stage) {
+  // Disabled stages (Bus) intentionally don't have a detail page.
+  // Block direct URL navigation to keep the sidebar and routing in
+  // sync — Slice F will route /stage/bus to a separate easter-egg
+  // dialog instead.
+  if (!stage || stage.disabled) {
     return (
       <section className="px-8 py-12">
         <h2 className="text-xl font-semibold text-slate-200">
-          Stage not found
+          {stage?.disabled ? "Stage unavailable" : "Stage not found"}
         </h2>
         <p className="mt-2 text-sm text-slate-400">
-          No stage with id <code className="text-slate-300">{stageId}</code>.
+          {stage?.disabled ? (
+            <>
+              Stage <code className="text-slate-300">{stageId}</code> has no
+              audio (UI-only).
+            </>
+          ) : (
+            <>
+              No stage with id <code className="text-slate-300">{stageId}</code>.
+            </>
+          )}
         </p>
       </section>
     );

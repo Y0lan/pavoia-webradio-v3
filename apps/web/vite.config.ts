@@ -30,9 +30,13 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    sourcemap: true,
-    // The engine's Hono static handler will serve these files in
-    // production. Keep entry filenames hashed for cache-busting.
+    // Source maps are useful for crash debugging but expose the entire
+    // source tree in browser devtools. Default off in prod; enable for
+    // a one-off debug build via `VITE_SOURCEMAP=1 npm run build`.
+    sourcemap: process.env.VITE_SOURCEMAP === "1",
+    // Hashed filenames so the engine's eventual static handler (added
+    // in a later Week 2 slice) can serve the SPA with long-cache assets
+    // and a short-cache index.html.
     rollupOptions: {
       output: {
         entryFileNames: "assets/[name]-[hash].js",

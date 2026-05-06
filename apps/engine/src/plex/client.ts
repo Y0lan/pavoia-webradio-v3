@@ -359,8 +359,23 @@ function mapEntryToTrack(
     : "Unknown artist";
   const album = entry.parentTitle ?? "";
 
+  // Plex returns grandparentRatingKey as a string; coerce to number.
+  // Null whenever it's missing, blank, or not parseable as a safe int —
+  // the ArtistDrawer falls back gracefully on null.
+  let artistRatingKey: number | null = null;
+  if (entry.grandparentRatingKey !== undefined && entry.grandparentRatingKey !== null) {
+    const trimmed = entry.grandparentRatingKey.trim();
+    if (trimmed !== "") {
+      const n = Number(trimmed);
+      if (Number.isInteger(n) && n > 0 && Number.isSafeInteger(n)) {
+        artistRatingKey = n;
+      }
+    }
+  }
+
   return {
     plexRatingKey: ratingKeyNum,
+    artistRatingKey,
     fallbackHash: fallbackHash(artist, entry.title, album),
     title: entry.title,
     artist,

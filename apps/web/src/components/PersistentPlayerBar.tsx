@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import { useStageNow } from "../api/now.ts";
+import { coverProxyUrl } from "../api/plex.ts";
 import { useStages } from "../api/stages.ts";
 import { usePlayback } from "../audio/PlaybackProvider.tsx";
 import { EqualizerBars } from "./EqualizerBars.tsx";
@@ -53,17 +54,31 @@ export function PersistentPlayerBar() {
           <span className="hidden sm:inline">on air</span>
         </div>
 
-        {/* Cover slot — gradient placeholder until Plex thumb proxy lands.
-            Becomes <img> in Slice H. */}
+        {/* Cover — Plex thumb when available, gradient otherwise. Tap to
+            jump to the playing stage's detail page. */}
         <Link
           to="/stage/$stageId"
           params={{ stageId: stage.id }}
-          className="size-12 shrink-0 overflow-hidden rounded-sm shadow-md ring-1 ring-[var(--color-card-border)]"
-          style={{
-            backgroundImage: `linear-gradient(135deg, ${stage.gradient.from}, ${stage.gradient.via}, ${stage.gradient.to})`,
-          }}
+          className="relative size-12 shrink-0 overflow-hidden rounded-sm shadow-md ring-1 ring-[var(--color-card-border)]"
           aria-label={`Go to ${stage.fallbackTitle}`}
-        />
+          style={
+            now?.track && coverProxyUrl(now.track.coverUrl)
+              ? undefined
+              : {
+                  backgroundImage: `linear-gradient(135deg, ${stage.gradient.from}, ${stage.gradient.via}, ${stage.gradient.to})`,
+                }
+          }
+        >
+          {now?.track && coverProxyUrl(now.track.coverUrl) ? (
+            <img
+              src={coverProxyUrl(now.track.coverUrl) ?? undefined}
+              alt=""
+              className="size-full object-cover"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : null}
+        </Link>
 
         {/* Track meta */}
         <div className="min-w-0 flex-1">

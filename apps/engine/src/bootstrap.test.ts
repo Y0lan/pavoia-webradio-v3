@@ -39,6 +39,7 @@ const BASE_CONFIG: EngineConfig = {
 function makeTrack(plexRatingKey: number): Track {
   return {
     plexRatingKey,
+    artistRatingKey: null,
     fallbackHash: `h-${plexRatingKey}`,
     title: `t${plexRatingKey}`,
     artist: "a",

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 
 import { usePlayback } from "../audio/PlaybackProvider.tsx";
+import { ArtistDrawer } from "../components/ArtistDrawer.tsx";
 import { BusMysteryCard } from "../components/BusMysteryCard.tsx";
 import { InfoDialog } from "../components/InfoDialog.tsx";
 import { MobileDrawer } from "../components/MobileDrawer.tsx";
@@ -78,6 +79,7 @@ export function Layout() {
       </main>
 
       <PersistentPlayerBar />
+      <ArtistDrawer />
       <InfoDialog open={infoOpen} onClose={() => setInfoOpen(false)} />
       <BusMysteryCard open={busOpen} onClose={() => setBusOpen(false)} />
     </div>

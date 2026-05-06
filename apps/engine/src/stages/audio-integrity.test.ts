@@ -82,6 +82,7 @@ async function writeSilentFixture(
 function makeTrack(filePath: string, durationSec: number): Track {
   return {
     plexRatingKey: 1,
+    artistRatingKey: null,
     fallbackHash: "0".repeat(16),
     title: "silence",
     artist: "test",

@@ -12,6 +12,7 @@ import type {
 function makeTrack(plexRatingKey: number): Track {
   return {
     plexRatingKey,
+    artistRatingKey: null,
     fallbackHash: `hash-${plexRatingKey}`,
     title: `t${plexRatingKey}`,
     artist: "a",

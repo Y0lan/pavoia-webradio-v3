@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 
 import { PlaybackProvider } from "./audio/PlaybackProvider.tsx";
+import { ArtistDrawerProvider } from "./components/ArtistDrawer.tsx";
 import { router } from "./router.tsx";
 import "./index.css";
 
@@ -32,7 +33,9 @@ createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <PlaybackProvider>
-        <RouterProvider router={router} />
+        <ArtistDrawerProvider>
+          <RouterProvider router={router} />
+        </ArtistDrawerProvider>
       </PlaybackProvider>
     </QueryClientProvider>
   </StrictMode>,

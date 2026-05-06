@@ -40,6 +40,7 @@ function fakeController(
 
 const SAMPLE_TRACK: Track = {
   plexRatingKey: 12345,
+    artistRatingKey: null,
   fallbackHash: "deadbeef00000000",
   title: "Sunset Lift",
   artist: "Some Artist",

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { NowPlaying as NowPlayingPayload, Stage } from "@pavoia/shared";
 
+import { coverProxyUrl } from "../api/plex.ts";
 import { usePlayback } from "../audio/PlaybackProvider.tsx";
+import { useArtistDrawer } from "./ArtistDrawer.tsx";
 import { EqualizerBars } from "./EqualizerBars.tsx";
 
 /* Local TrackProgress — small enough to inline. Updates every second
@@ -84,12 +86,15 @@ interface NowPlayingHeroProps {
  */
 export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProps) {
   const { playingStageId, state, play, pause, resume } = usePlayback();
+  const { openArtist } = useArtistDrawer();
   const { status, track, startedAt } = payload;
 
   const isThisStageActive = playingStageId === stage.id;
   const displayState = isThisStageActive ? state : "idle";
   const isPlaying = displayState === "playing";
   const isLoading = displayState === "loading";
+
+  const coverSrc = track ? coverProxyUrl(track.coverUrl) : null;
 
   const onTogglePlay = () => {
     if (isThisStageActive) {
@@ -128,35 +133,45 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
         {stage.fallbackTitle.toLowerCase()}
       </h1>
 
-      {/* Cover art / placeholder. Square, vinyl-ish, atmospheric. */}
+      {/* Cover art — Plex thumb when available, vinyl gradient otherwise. */}
       <div className="relative my-10 w-full max-w-sm md:my-14 md:max-w-md">
         <div
-          className="aspect-square w-full overflow-hidden rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
+          className="relative aspect-square w-full overflow-hidden rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
           style={{
-            backgroundImage: `
-              radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
-              radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
-              ${stage.gradient.to}
-            `,
+            backgroundImage: coverSrc
+              ? undefined
+              : `
+                  radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
+                  radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
+                  ${stage.gradient.to}
+                `,
+            backgroundColor: coverSrc ? "var(--color-bg-soft)" : undefined,
           }}
         >
-          {/* Vinyl-record concentric circles — pure CSS placeholder until
-              the Plex thumb proxy lands and we put <img> here. */}
-          <div className="relative size-full">
-            <div
-              className="absolute inset-[14%] rounded-full opacity-30"
-              style={{
-                background: `repeating-radial-gradient(circle at center, transparent 0, transparent 4px, rgba(0,0,0,0.4) 4px, rgba(0,0,0,0.4) 5px)`,
-              }}
+          {coverSrc ? (
+            <img
+              src={coverSrc}
+              alt=""
+              className="size-full object-cover"
+              loading="eager"
+              decoding="async"
             />
-            <div
-              className="absolute inset-[42%] rounded-full"
-              style={{ backgroundColor: stage.accent, opacity: 0.85 }}
-            />
-            <div
-              className="absolute inset-[48%] rounded-full bg-black"
-            />
-          </div>
+          ) : (
+            // Vinyl-record concentric circles fallback when no cover.
+            <div className="relative size-full">
+              <div
+                className="absolute inset-[14%] rounded-full opacity-30"
+                style={{
+                  background: `repeating-radial-gradient(circle at center, transparent 0, transparent 4px, rgba(0,0,0,0.4) 4px, rgba(0,0,0,0.4) 5px)`,
+                }}
+              />
+              <div
+                className="absolute inset-[42%] rounded-full"
+                style={{ backgroundColor: stage.accent, opacity: 0.85 }}
+              />
+              <div className="absolute inset-[48%] rounded-full bg-black" />
+            </div>
+          )}
         </div>
 
         {/* EQ bars overlaid on the bottom-right corner of the cover when
@@ -175,9 +190,20 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
             <h2 className="line-clamp-2 font-sans text-2xl font-semibold leading-tight text-[var(--color-text)] md:text-3xl">
               {track.title}
             </h2>
-            <p className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] md:text-xl">
-              {track.artist}
-            </p>
+            {typeof track.artistRatingKey === "number" ? (
+              <button
+                type="button"
+                onClick={() => openArtist(track.artistRatingKey!)}
+                className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] underline-offset-4 transition-colors hover:text-[var(--color-text)] hover:underline md:text-xl"
+                aria-label={`Open ${track.artist} details`}
+              >
+                {track.artist}
+              </button>
+            ) : (
+              <p className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] md:text-xl">
+                {track.artist}
+              </p>
+            )}
             <p className="mt-1.5 truncate font-mono text-[11px] uppercase tracking-wider text-[var(--color-text-faint)]">
               {track.album}
               {typeof track.albumYear === "number" ? ` · ${track.albumYear}` : ""}

@@ -44,6 +44,10 @@ export type Stage = {
  */
 export type Track = {
   plexRatingKey: number;
+  /** Plex ratingKey of the parent artist node, or null when missing
+   *  (e.g. "Various Artists" compilations sometimes have no
+   *  grandparentRatingKey). Powers the ArtistDrawer lookups. */
+  artistRatingKey: number | null;
   /** Fallback identity when Plex ratingKey rotates after library maintenance. */
   fallbackHash: string;
   title: string;
@@ -69,6 +73,7 @@ export type Track = {
 export type PublicTrack = Pick<
   Track,
   | "plexRatingKey"
+  | "artistRatingKey"
   | "fallbackHash"
   | "title"
   | "artist"
@@ -83,6 +88,7 @@ export type PublicTrack = Pick<
 export function toPublicTrack(t: Track): PublicTrack {
   return {
     plexRatingKey: t.plexRatingKey,
+    artistRatingKey: t.artistRatingKey,
     fallbackHash: t.fallbackHash,
     title: t.title,
     artist: t.artist,

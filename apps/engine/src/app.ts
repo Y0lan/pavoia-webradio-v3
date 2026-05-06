@@ -14,6 +14,7 @@ import {
 } from "@pavoia/shared";
 
 import { createHlsHandler } from "./hls.ts";
+import { createPlexProxy } from "./plex/proxy.ts";
 import type { StageRegistry } from "./stages/registry.ts";
 import { createWebStaticHandler } from "./web-static.ts";
 
@@ -59,6 +60,13 @@ export interface AppDeps {
    *  paths return 404 (the local-dev workflow lets Vite serve the
    *  SPA at a different port). */
   webDistDir?: string;
+  /** When provided, mounts a narrow read-only Plex API proxy at
+   *  /api/plex/* (thumbs + artist info). The proxy attaches the
+   *  X-Plex-Token server-side so the browser never sees it. */
+  plexProxy?: {
+    baseUrl: string;
+    token: string;
+  };
 }
 
 const PORT_PATTERN = /^[1-9]\d{0,4}$/;
@@ -80,7 +88,7 @@ export function resolvePort(raw: string | undefined): number {
 }
 
 export function createApp(deps: AppDeps = {}): Hono {
-  const { registry, hlsRoot, webDistDir } = deps;
+  const { registry, hlsRoot, webDistDir, plexProxy } = deps;
   const app = new Hono();
 
   app.get("/api/health", (c) => {
@@ -170,6 +178,15 @@ export function createApp(deps: AppDeps = {}): Hono {
       c.header("access-control-allow-origin", "*");
       return c.json({ error: "hls_unavailable" }, 503);
     });
+  }
+
+  // /api/plex/* — narrow Plex media proxy (thumbs + artist info).
+  // Mounted BEFORE the catchall so /api/plex/<typo> still gets a
+  // JSON 404 from the namespace catchall below. When plexProxy isn't
+  // wired (HTTP-only canary deploys), unknown /api/plex/* returns
+  // the namespace 404.
+  if (plexProxy !== undefined) {
+    app.route("/api/plex", createPlexProxy(plexProxy));
   }
 
   // Reserve the /api namespace with an explicit JSON 404 BEFORE the

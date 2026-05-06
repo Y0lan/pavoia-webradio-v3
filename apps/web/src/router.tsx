@@ -2,22 +2,29 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  Outlet,
 } from "@tanstack/react-router";
 
-import { StagesPage } from "./pages/StagesPage.tsx";
+import { Layout } from "./pages/Layout.tsx";
+import { HomePage } from "./pages/HomePage.tsx";
+import { StageDetailPage } from "./pages/StageDetailPage.tsx";
 
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: Layout,
 });
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: StagesPage,
+  component: HomePage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute]);
+const stageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/stage/$stageId",
+  component: StageDetailPage,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, stageRoute]);
 
 export const router = createRouter({
   routeTree,

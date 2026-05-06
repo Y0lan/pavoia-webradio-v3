@@ -102,10 +102,14 @@ async function safeResolve(
   relPath: string,
 ): Promise<string | null> {
   // Cheap reject for traversal hints. realpath would also catch
-  // these but failing fast keeps the error path quiet.
+  // these but failing fast keeps the error path quiet. Repeated
+  // slashes don't smuggle in current Node + Hono (path.join collapses
+  // them and realpath normalizes), but rejecting them up front is
+  // belt-and-braces against future routing-layer drift.
   if (
     relPath.includes("\0") ||
     relPath.includes("\\") ||
+    relPath.includes("//") ||
     /(^|\/)\.\.($|\/)/.test(relPath)
   ) {
     return null;

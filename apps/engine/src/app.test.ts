@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import {
   createApp,
@@ -435,5 +438,72 @@ describe("createApp() — /hls/* wiring", () => {
     } finally {
       await rm(work, { recursive: true, force: true });
     }
+  });
+});
+
+describe("createApp() — /api namespace JSON 404", () => {
+  it("returns JSON 404 for an unknown /api/* path (no SPA serving)", async () => {
+    const app = createApp();
+    const res = await app.request("/api/this-endpoint-does-not-exist");
+    assert.equal(res.status, 404);
+    assert.equal(res.headers.get("content-type")?.split(";")[0], "application/json");
+    const body = (await res.json()) as { error: string };
+    assert.equal(body.error, "not_found");
+  });
+
+  it("returns JSON 404 for /api/<typo> even when webDistDir is set (catchall wouldn't shadow)", async () => {
+    // Set up a minimal SPA dist on disk.
+    const work = await mkdtemp(path.join(tmpdir(), "pavoia-app-spa-"));
+    try {
+      await writeFile(
+        path.join(work, "index.html"),
+        "<!doctype html><body>SPA</body>",
+      );
+      const app = createApp({ webDistDir: work });
+      const res = await app.request("/api/this-endpoint-does-not-exist");
+      assert.equal(res.status, 404);
+      assert.equal(res.headers.get("content-type")?.split(";")[0], "application/json");
+      const body = (await res.json()) as { error: string };
+      assert.equal(body.error, "not_found");
+    } finally {
+      await rm(work, { recursive: true, force: true });
+    }
+  });
+
+  it("real /api routes still win over the JSON catchall (registration order)", async () => {
+    // Sanity: adding the JSON-404 catchall must not shadow the
+    // specific /api/health, /api/stages routes registered earlier.
+    const app = createApp();
+    const health = await app.request("/api/health");
+    assert.equal(health.status, 200);
+    const stages = await app.request("/api/stages");
+    assert.equal(stages.status, 200);
+  });
+
+  it("SPA catchall serves index.html for non-/api routes when webDistDir is set", async () => {
+    const work = await mkdtemp(path.join(tmpdir(), "pavoia-app-spa2-"));
+    try {
+      await writeFile(
+        path.join(work, "index.html"),
+        "<!doctype html><body>SPA shell</body>",
+      );
+      const app = createApp({ webDistDir: work });
+      const res = await app.request("/stage/opening");
+      assert.equal(res.status, 200);
+      assert.match(
+        res.headers.get("content-type") ?? "",
+        /text\/html/,
+      );
+      assert.match(await res.text(), /SPA shell/);
+    } finally {
+      await rm(work, { recursive: true, force: true });
+    }
+  });
+
+  it("returns JSON not_found for non-/api paths when webDistDir is unset (local-dev contract)", async () => {
+    const app = createApp(); // no webDistDir
+    const res = await app.request("/stage/opening");
+    assert.equal(res.status, 404);
+    assert.equal(res.headers.get("content-type")?.split(";")[0], "application/json");
   });
 });

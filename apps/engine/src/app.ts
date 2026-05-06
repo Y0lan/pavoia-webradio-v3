@@ -172,7 +172,17 @@ export function createApp(deps: AppDeps = {}): Hono {
     });
   }
 
-  // /web/* — built Vite SPA (catchall for non-/api, non-/hls paths).
+  // Reserve the /api namespace with an explicit JSON 404 BEFORE the
+  // SPA catchall takes over. Without this, an unknown /api/<typo>
+  // would land in the SPA's `*` handler and return `200 text/html`,
+  // which makes frontend bugs (and curl debugging) confusing — the
+  // operator expects JSON for everything under /api. /hls already
+  // returns 404 JSON via createHlsHandler's own notFound handler.
+  app.all("/api/*", (c) =>
+    c.json({ error: "not_found", path: c.req.path }, 404),
+  );
+
+  // SPA catchall — built Vite output (non-/api, non-/hls paths).
   // Mounted last so /api and /hls take precedence. When webDistDir
   // isn't set we keep the JSON not_found behavior for unknown paths
   // (local dev with separate Vite server).

@@ -187,6 +187,12 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
           levelLoadingMaxRetry: 6,
           // hls.js's built-in stall-handling: nudge the playhead
           // forward when the buffer underruns instead of pausing.
+          // Default is 3; we raise to 8 because our 60 s buffer
+          // means a transient network blip is much more likely to
+          // resolve than to cascade into a permanent stall — we'd
+          // rather nudge a few extra times than throw a
+          // BUFFER_STALLED_ERROR. Trade-off accepted per the
+          // listener-feedback resilience pass.
           nudgeMaxRetry: 8,
           nudgeOffset: 0.2,
         });

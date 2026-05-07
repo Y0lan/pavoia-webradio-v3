@@ -72,14 +72,14 @@ export function Layout() {
       </MobileDrawer>
 
       <main
-        className="relative flex-1 overflow-hidden"
+        className="relative min-w-0 flex-1 overflow-hidden"
         style={{
           // Reserve space for the fixed persistent player bar so the
           // page's own footer doesn't slide under it.
           paddingBottom: playerBarVisible ? "5.5rem" : undefined,
         }}
       >
-        <div className="h-full overflow-y-auto">
+        <div className="h-full overflow-hidden">
           <Outlet />
         </div>
       </main>

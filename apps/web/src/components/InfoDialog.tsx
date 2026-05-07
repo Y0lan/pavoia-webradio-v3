@@ -6,119 +6,223 @@ interface InfoDialogProps {
 }
 
 /**
- * About / readme. The curator's first-person voice — adapted from
- * v1's InfoDialog, updated for v3's eleven stages and the
- * Anti-Algorithm digging method that powers the catalog.
+ * About / readme. The curator's first-person voice + social icons.
+ * Tight enough to fit a 700-px viewport without internal scroll.
  */
 export function InfoDialog({ open, onClose }: InfoDialogProps) {
   return (
     <Dialog open={open} onClose={onClose} ariaLabel="About Pavoia">
-      <div className="space-y-4">
-        {/* Logo hero — the v1 animated mark, big at the top */}
+      <div className="flex flex-col gap-3">
+        {/* Logo hero */}
         <div className="text-center">
           <img
             src="/pavoia-logo.gif"
             alt="Pavoia"
-            className="mx-auto h-20 w-auto md:h-24"
+            className="mx-auto h-14 w-auto md:h-16"
             style={{
-              filter: "drop-shadow(0 0 22px rgba(232,80,32,0.25))",
+              filter: "drop-shadow(0 0 18px rgba(232,80,32,0.25))",
             }}
           />
-          <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-text-soft)]">
+          <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-text-soft)]">
             <span className="text-[var(--color-accent-dim)]">//</span>{" "}
             pavoia webradio · v3
           </p>
         </div>
 
-        {/* Curator's note — first person, warm. Direct port of v1's
-            voice, updated for "eleven stages" and the digging story. */}
-        <div className="space-y-3 font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
-          <p>
-            This collection started years ago, built from artists I
-            heard at <strong className="text-[var(--color-text)]">Pavoia</strong>{" "}
-            and countless hours of digging for new sounds. Every time I
-            fall for a track, I picture which stage it belongs to. What
-            began as a personal obsession slowly grew into something
-            worth sharing.
-          </p>
-          <p>
-            Today, these{" "}
-            <strong className="text-[var(--color-text)]">eleven stages</strong>{" "}
-            are open to anyone who finds them. The playlists keep
-            growing — full albums, B-sides nobody flipped, and obscure
-            new releases I dig out daily, the hard way. No charts, no
-            algorithm. Just the next track when this one ends.
-          </p>
-        </div>
-
-        {/* Listening tips — small print, useful */}
-        <div className="rounded-sm border border-[var(--color-card-border)] bg-[var(--color-bg-soft)] px-4 py-3 font-sans text-xs leading-relaxed text-[var(--color-text-soft)]">
-          <p>
-            <strong className="text-[var(--color-text)]">High quality, unprocessed.</strong>{" "}
-            All streams are AAC at the source bitrate — the way the
-            artists meant the tracks to land.
-          </p>
-          <p className="mt-2">
-            <strong className="text-[var(--color-text)]">On your phone?</strong>{" "}
-            Most browsers keep playing in the background while the tab
-            stays open. Add the page to your home screen for the best
-            experience.
-          </p>
-        </div>
+        {/* Curator's note — single tight paragraph */}
+        <p className="font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
+          Hey, I'm{" "}
+          <strong className="text-[var(--color-text)]">gaende</strong>.
+          I dig music for a living, the hard way — albums, hidden
+          B-sides, forgotten 90s vinyl, daily diggings. Every track I
+          fall for, I picture which stage of{" "}
+          <strong className="text-[var(--color-text)]">Pâvoia</strong>{" "}
+          it belongs to. What grew out of that is{" "}
+          <strong className="text-[var(--color-text)]">eleven
+          stages</strong>{" "}
+          you can tune into right now — the rest of the night carries
+          on around you.
+        </p>
 
         {/* Bus stage hint */}
-        <div className="rounded-sm border border-[rgba(255,170,0,0.18)] bg-[rgba(255,170,0,0.04)] px-4 py-3 font-sans text-xs italic leading-relaxed text-[var(--color-text-soft)]">
-          🚌 The bus stage isn't on the wire — it's out there, somewhere
-          at Pavoia. Find it, hop on, let the music surprise you.
-        </div>
+        <p className="rounded-sm border border-[rgba(255,170,0,0.18)] bg-[rgba(255,170,0,0.04)] px-3 py-2 font-sans text-xs italic leading-relaxed text-[var(--color-text-soft)]">
+          🚌 The bus stage isn't on the wire — it's out there at
+          Pâvoia. Find it, hop on, let the music surprise you.
+        </p>
 
-        {/* Social — v1 had Instagram + SoundCloud. Keeping it warm. */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <a
-            href="https://instagram.com/wearepavoia"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-sm border border-[var(--color-card-border)] bg-[var(--color-bg-soft)] px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent-dim)] hover:text-[var(--color-text)]"
-          >
-            <span className="text-[var(--color-accent-dim)]">→</span> instagram{" "}
-            <span className="text-[var(--color-text-faint)]">@wearepavoia</span>
-          </a>
-          <a
-            href="https://soundcloud.com/pavoia"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-sm border border-[var(--color-card-border)] bg-[var(--color-bg-soft)] px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent-dim)] hover:text-[var(--color-text)]"
-          >
-            <span className="text-[var(--color-accent-dim)]">→</span> soundcloud{" "}
-            <span className="text-[var(--color-text-faint)]">@pavoia</span>
-          </a>
-        </div>
+        {/* Socials — Pâvoia + the curator, two rows of icon buttons. */}
+        <div className="space-y-2">
+          <div>
+            <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]">
+              <span className="text-[var(--color-accent-dim)]">//</span>{" "}
+              follow pâvoia
+            </p>
+            <div className="flex gap-2">
+              <SocialIconButton
+                href="https://instagram.com/wearepavoia"
+                label="Instagram @wearepavoia"
+                icon={<InstagramIcon />}
+              />
+              <SocialIconButton
+                href="https://soundcloud.com/pavoia"
+                label="SoundCloud @pavoia"
+                icon={<SoundcloudIcon />}
+              />
+              <SocialIconButton
+                href="https://pavoia.com"
+                label="pavoia.com"
+                icon={<GlobeIcon />}
+              />
+            </div>
+          </div>
 
-        {/* Signature */}
-        <div className="border-t border-[var(--color-card-border)] pt-3 text-center font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-faint)]">
-          made with{" "}
-          <span className="text-[var(--color-accent)]">♥</span> by{" "}
-          <a
-            href="https://instagram.com/gaende_music"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--color-text-soft)] underline-offset-4 transition-colors hover:text-[var(--color-text)] hover:underline"
-          >
-            gaende
-          </a>
+          <div>
+            <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]">
+              <span className="text-[var(--color-accent-dim)]">//</span>{" "}
+              follow gaende
+            </p>
+            <div className="flex gap-2">
+              <SocialIconButton
+                href="https://instagram.com/gaende_music"
+                label="Instagram @gaende_music"
+                icon={<InstagramIcon />}
+              />
+              <SocialIconButton
+                href="https://soundcloud.com/gaende"
+                label="SoundCloud @gaende"
+                icon={<SoundcloudIcon />}
+              />
+              <SocialIconButton
+                href="https://open.spotify.com/user/gaende"
+                label="Spotify @gaende"
+                icon={<SpotifyIcon />}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Close */}
-        <div className="flex justify-end pt-1">
+        <div className="flex items-center justify-between border-t border-[var(--color-card-border)] pt-2">
+          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-text-faint)]">
+            made with{" "}
+            <span className="text-[var(--color-accent)]">♥</span> by gaende ·
+            2026
+          </span>
           <button
             type="button"
             onClick={onClose}
-            className="border border-[var(--color-card-border-strong)] px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+            className="border border-[var(--color-card-border-strong)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
           >
             close
           </button>
         </div>
       </div>
     </Dialog>
+  );
+}
+
+function SocialIconButton({
+  href,
+  label,
+  icon,
+}: {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={label}
+      title={label}
+      className="flex size-10 items-center justify-center rounded-sm border border-[var(--color-card-border)] bg-[var(--color-bg-soft)] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent-dim)] hover:bg-[rgba(232,80,32,0.06)] hover:text-[var(--color-text)]"
+    >
+      {icon}
+    </a>
+  );
+}
+
+function InstagramIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.5" cy="6.5" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function SoundcloudIcon() {
+  return (
+    <svg
+      width="20"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2 14v3" />
+      <path d="M5 12v5" />
+      <path d="M8 10v7" />
+      <path d="M11 9v8" />
+      <path d="M14 9c0-2.5 2-4.5 4.5-4.5S23 6.5 23 9" />
+      <path d="M14 17h6c1.7 0 3-1.3 3-3s-1.3-3-3-3" />
+    </svg>
+  );
+}
+
+function SpotifyIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M7 9c3-1 8.5-1 11.5 1" />
+      <path d="M7.5 13c2.5-.8 6.8-.7 9.5 1" />
+      <path d="M8.5 16.5c2-.6 5-.5 7 .7" />
+    </svg>
+  );
+}
+
+function GlobeIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2c2.5 3 4 6.5 4 10s-1.5 7-4 10" />
+      <path d="M12 2c-2.5 3-4 6.5-4 10s1.5 7 4 10" />
+    </svg>
   );
 }

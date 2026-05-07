@@ -23,22 +23,30 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
     >
       {/* Brand — v1's animated PAVOIA logo (the festival's actual
           mark, hosted in public/). */}
-      <header className="px-5 pb-3 pt-5 md:pb-4 md:pt-6">
+      <header className="px-5 pb-3 pt-4 md:pb-3 md:pt-5">
         <img
           src="/pavoia-logo.gif"
           alt="Pavoia"
-          className="h-12 w-auto md:h-14"
+          className="h-10 w-auto md:h-12"
           style={{
             filter: "drop-shadow(0 0 14px rgba(232,80,32,0.18))",
           }}
         />
         <p className="mt-2 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
           <span className="text-[var(--color-accent-dim)]">//</span>{" "}
-          PAVOIA webradio · made by gaende
+          PAVOIA webradio · made by{" "}
+          <button
+            type="button"
+            onClick={onOpenInfo}
+            className="font-mono text-[var(--color-accent)] underline-offset-4 transition-colors hover:underline"
+            aria-label="About gaende"
+          >
+            gaende
+          </button>
         </p>
       </header>
 
-      <div className="px-5 pb-2 pt-3">
+      <div className="px-5 pb-1 pt-2">
         <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-soft)]">
           <span className="h-px flex-1 bg-[var(--color-card-border-strong)]" />
           <span>stages</span>

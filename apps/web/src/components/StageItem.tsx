@@ -47,7 +47,7 @@ export function StageItem({
       <button
         type="button"
         onClick={onOpenBus}
-        className="group relative flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-[var(--color-bg-soft)]"
+        className="group relative flex w-full items-center gap-3 px-5 py-2 text-left transition-colors hover:bg-[var(--color-bg-soft)]"
       >
         <span className="font-mono text-[10px] tabular-nums text-[var(--color-text-faint)]">
           {number}
@@ -63,10 +63,7 @@ export function StageItem({
               {stage.fallbackTitle.toLowerCase()}
             </span>
           </div>
-          <div className="mt-0.5 truncate font-sans text-xs text-[var(--color-text-soft)]">
-            no audio · ui only
           </div>
-        </div>
         <span
           className="text-lg opacity-50 transition-opacity group-hover:opacity-90"
           aria-hidden="true"
@@ -82,7 +79,7 @@ export function StageItem({
       to="/stage/$stageId"
       params={{ stageId: stage.id }}
       aria-current={isActive ? "page" : undefined}
-      className="group relative flex w-full items-center gap-3 px-5 py-3 transition-colors hover:bg-[var(--color-bg-soft)]"
+      className="group relative flex w-full items-center gap-3 px-5 py-2 transition-colors hover:bg-[var(--color-bg-soft)]"
     >
       {/* Active-route stripe — thin vertical bar, accent color */}
       {isActive && (
@@ -130,9 +127,6 @@ export function StageItem({
           >
             {stage.fallbackTitle.toLowerCase()}
           </span>
-        </div>
-        <div className="mt-0.5 truncate font-sans text-xs leading-snug text-[var(--color-text-soft)]">
-          {stage.fallbackDescription.split(/[.,]/)[0]}
         </div>
       </div>
 

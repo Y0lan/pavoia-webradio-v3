@@ -11,7 +11,7 @@ export function HomePage() {
   const audioStages = (stages ?? []).filter((s) => !s.disabled);
 
   return (
-    <section className="relative min-h-dvh overflow-hidden">
+    <section className="relative h-full overflow-hidden">
       {/* Slow drifting mood backdrop — uses the union of stage palettes
           so the home screen feels like the festival's whole night. */}
       <div
@@ -31,7 +31,7 @@ export function HomePage() {
         }}
       />
 
-      <div className="relative z-10 flex min-h-dvh flex-col px-6 py-10 md:px-12 md:py-16">
+      <div className="relative z-10 flex h-full flex-col px-6 py-6 md:px-12 md:py-10">
         {/* Top metadata strip */}
         <header className="font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
           <span className="text-[var(--color-accent-dim)]">//</span>{" "}
@@ -44,7 +44,7 @@ export function HomePage() {
           <h1
             className="font-mono font-bold leading-[0.85] tracking-[0.05em] text-[var(--color-accent)]"
             style={{
-              fontSize: "clamp(3rem, 13vw, 10rem)",
+              fontSize: "clamp(2.5rem, 11vw, 8rem)",
               textShadow: "0 0 60px rgba(232,80,32,0.25)",
             }}
           >
@@ -52,7 +52,7 @@ export function HomePage() {
           </h1>
 
           <p
-            className="mt-6 max-w-xl font-serif text-2xl italic leading-snug text-[var(--color-text)] md:text-3xl"
+            className="mt-4 max-w-xl font-serif text-2xl italic leading-snug text-[var(--color-text)] md:text-3xl"
           >
             eleven stages,
             <br />
@@ -63,13 +63,13 @@ export function HomePage() {
             </span>
           </p>
 
-          <p className="mt-8 max-w-md font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
+          <p className="mt-5 max-w-md font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
             A curator's collection played as radio — full albums, hidden
             B-sides, forgotten 90s vinyl, daily diggings. Tune into a
             stage, the rest of the night carries on around you.
           </p>
 
-          <div className="mt-10 flex items-center gap-3">
+          <div className="mt-6 flex items-center gap-3">
             <span
               className="animate-blink font-mono text-sm text-[var(--color-accent)]"
               aria-hidden="true"

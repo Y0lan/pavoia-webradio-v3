@@ -31,10 +31,13 @@ describe("createWebStaticHandler", () => {
       path.join(dist, "assets", "index-EfGh5678.css"),
       "body { color: tomato; }",
     );
-    // A non-hashed file in the root (favicon, etc.) — should serve
-    // via the catchall path's index.html (we don't have a separate
-    // "root file" handler, so favicons land via SPA fallback today;
-    // operators wanting them can prefix with assets/).
+    // A non-hashed file in the root (favicon, public/ asset, etc.) —
+    // Vite copies these from public/ to dist root. The catchall must
+    // serve the file, not the SPA shell.
+    await writeFile(
+      path.join(dist, "pavoia-logo.gif"),
+      Buffer.from("GIF89a"),
+    );
   });
   afterEach(async () => {
     await rm(dist, { recursive: true, force: true });
@@ -85,6 +88,16 @@ describe("createWebStaticHandler", () => {
     const body = await res.text();
     assert.match(body, /<!doctype html>/i);
     assert.match(body, /Pavoia/);
+  });
+
+  it("serves a public/ file at dist root with the right MIME (no SPA fallback)", async () => {
+    const app = mount(dist);
+    const res = await app.request("/pavoia-logo.gif");
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "image/gif");
+    assert.equal(res.headers.get("cache-control"), "no-cache");
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.equal(buf.toString("ascii"), "GIF89a");
   });
 
   it("falls back to index.html for the root path", async () => {

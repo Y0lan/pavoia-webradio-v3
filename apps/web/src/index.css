@@ -115,6 +115,16 @@ body::before {
   --animate-mood-shift: mood-shift 80s ease-in-out infinite alternate;
 }
 
+/* Glow-pulse — slow ambient breath behind the home-page eye. */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.75; transform: scale(1.55); }
+  50%      { opacity: 1;    transform: scale(1.7);  }
+}
+
+@theme {
+  --animate-glow-pulse: glow-pulse 6s ease-in-out infinite;
+}
+
 /* Selection — red/amber so it ties into the primary accent. */
 ::selection {
   background: rgba(232, 80, 32, 0.35);

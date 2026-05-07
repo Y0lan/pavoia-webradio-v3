@@ -137,8 +137,12 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
 
       // Different stage (or first play) → switch streams. Bump the
       // version NOW so any in-flight rejection from the old stream
-      // can detect it's stale.
+      // can detect it's stale. Reset the recovery counter — each
+      // new stream starts with a fresh MAX_FATAL_RECOVERY_ATTEMPTS
+      // budget; otherwise a stage that consumed N retries would
+      // leave the next stage with only (5 - N) before going dead.
       streamVersionRef.current += 1;
+      recoveryAttemptsRef.current = 0;
       const versionAtCall = streamVersionRef.current;
 
       teardown();

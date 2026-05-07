@@ -21,23 +21,18 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
       className="flex h-full w-full flex-col bg-[var(--color-bg)] md:w-80 md:border-r md:border-[var(--color-card-border)]"
       aria-label="Stages"
     >
-      {/* Wordmark — JetBrains Mono GAENDE-style, with blinking caret */}
-      <header className="px-5 pb-3 pt-6 md:pb-5 md:pt-8">
-        <div className="flex items-baseline gap-3">
-          <span
-            className="animate-blink font-mono text-xs text-[var(--color-accent)]"
-            aria-hidden="true"
-          >
-            ▸
-          </span>
-          <h1
-            className="font-mono text-2xl font-bold tracking-[0.2em] text-[var(--color-accent)]"
-            style={{ textShadow: "0 0 24px rgba(232,80,32,0.25)" }}
-          >
-            PAVOIA
-          </h1>
-        </div>
-        <p className="mt-2 pl-7 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
+      {/* Brand — v1's animated PAVOIA logo (the festival's actual
+          mark, hosted in public/). */}
+      <header className="px-5 pb-3 pt-5 md:pb-4 md:pt-6">
+        <img
+          src="/pavoia-logo.gif"
+          alt="Pavoia"
+          className="h-12 w-auto md:h-14"
+          style={{
+            filter: "drop-shadow(0 0 14px rgba(232,80,32,0.18))",
+          }}
+        />
+        <p className="mt-2 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
           <span className="text-[var(--color-accent-dim)]">//</span>{" "}
           gaende's webradio · 11 stages
         </p>

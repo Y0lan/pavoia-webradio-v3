@@ -127,9 +127,9 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
   };
 
   return (
-    <div className="flex flex-col items-center px-6 pb-32 pt-6 md:px-8 md:pb-40 md:pt-10">
+    <div className="flex h-full flex-col items-center overflow-hidden px-6 py-4 md:px-8 md:py-6">
       {/* Stage label (mono, prefixed with //) */}
-      <div className="mb-4 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
+      <div className="mb-2 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
         <span
           className={`size-1.5 rounded-full ${
             isPlaying ? "animate-blink" : ""
@@ -158,12 +158,14 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
         {stage.fallbackDescription}
       </p>
 
-      {/* Cover art — Plex thumb when available; vinyl gradient when
-          missing OR when the proxy returns 404/502/etc. */}
-      <div className="relative my-10 w-full max-w-sm md:my-14 md:max-w-md">
+      {/* Cover art — flex-1 + min-h-0 makes this section absorb the
+          remaining vertical space, and the cover scales as a square
+          to fill that height (or the available width, whichever is
+          smaller). The whole hero fits one viewport this way. */}
+      <div className="relative my-3 flex min-h-0 w-full flex-1 items-center justify-center md:my-5">
         <CoverImage
           plexCoverUrl={track?.coverUrl}
-          className="aspect-square w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
+          className="aspect-square h-full max-h-full max-w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
           loading="eager"
           style={{
             backgroundImage: `
@@ -244,7 +246,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
           the engine just emitted. When the stage is selected but not
           playing, show the engine's true progress (no offset). */}
       {track && startedAt !== null && status === "playing" ? (
-        <div className="mt-10 w-full max-w-md">
+        <div className="mt-4 w-full max-w-md">
           <TrackProgress
             startedAt={startedAt}
             durationSec={track.durationSec}
@@ -255,7 +257,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
       ) : null}
 
       {/* Play/pause — large, accent-ringed, the festival hero button */}
-      <div className="mt-10">
+      <div className="mt-4">
         <button
           type="button"
           onClick={onTogglePlay}

@@ -9,20 +9,12 @@ interface MobileHeaderProps {
 export function MobileHeader({ onOpenDrawer }: MobileHeaderProps) {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--color-card-border)] bg-[var(--color-bg)]/95 px-4 py-3 backdrop-blur md:hidden">
-      <div className="flex items-baseline gap-2">
-        <span
-          className="animate-blink font-mono text-[10px] text-[var(--color-accent)]"
-          aria-hidden="true"
-        >
-          ▸
-        </span>
-        <h1
-          className="font-mono text-base font-bold tracking-[0.18em] text-[var(--color-accent)]"
-          style={{ textShadow: "0 0 14px rgba(232,80,32,0.25)" }}
-        >
-          PAVOIA
-        </h1>
-      </div>
+      <img
+        src="/pavoia-logo.gif"
+        alt="Pavoia"
+        className="h-8 w-auto"
+        style={{ filter: "drop-shadow(0 0 10px rgba(232,80,32,0.2))" }}
+      />
       <button
         type="button"
         onClick={onOpenDrawer}

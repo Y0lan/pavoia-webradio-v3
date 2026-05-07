@@ -33,6 +33,7 @@ const instantReadyWatcher: WaitForFirstSegmentFn = async () => "ready";
 function makeTrack(overrides: Partial<Track> = {}): Track {
   return {
     plexRatingKey: 1,
+    artistRatingKey: null,
     fallbackHash: "deadbeef00000000",
     title: "t",
     artist: "a",
@@ -171,9 +172,12 @@ describe("startStage — happy path", () => {
   it("runs tracks sequentially and wraps around", async () => {
     const runner = makeControlledRunner();
     const tracks = [
-      makeTrack({ plexRatingKey: 10, filePath: "/m/1.opus" }),
-      makeTrack({ plexRatingKey: 20, filePath: "/m/2.opus" }),
-      makeTrack({ plexRatingKey: 30, filePath: "/m/3.opus" }),
+      makeTrack({ plexRatingKey: 10,
+    artistRatingKey: null, filePath: "/m/1.opus" }),
+      makeTrack({ plexRatingKey: 20,
+    artistRatingKey: null, filePath: "/m/2.opus" }),
+      makeTrack({ plexRatingKey: 30,
+    artistRatingKey: null, filePath: "/m/3.opus" }),
     ];
     const events: StageEvent[] = [];
 
@@ -226,8 +230,10 @@ describe("startStage — happy path", () => {
 
   it("snapshots the tracks array at start — later caller mutation has no effect", async () => {
     const runner = makeControlledRunner();
-    const t1 = makeTrack({ plexRatingKey: 10, filePath: "/m/1.opus" });
-    const t2 = makeTrack({ plexRatingKey: 20, filePath: "/m/2.opus" });
+    const t1 = makeTrack({ plexRatingKey: 10,
+    artistRatingKey: null, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 20,
+    artistRatingKey: null, filePath: "/m/2.opus" });
     const callerArray = [t1, t2];
 
     const ctl = startStage({
@@ -244,7 +250,8 @@ describe("startStage — happy path", () => {
     // Mutate the caller's array AFTER startStage has returned —
     // swap both tracks to a poisoned one. If the supervisor didn't
     // snapshot, the next spawn would pick up the mutation.
-    const poison = makeTrack({ plexRatingKey: 999, filePath: "/poison" });
+    const poison = makeTrack({ plexRatingKey: 999,
+    artistRatingKey: null, filePath: "/poison" });
     callerArray[0] = poison;
     callerArray[1] = poison;
 
@@ -443,8 +450,10 @@ describe("startStage — crash handling", () => {
     const runner = makeControlledRunner();
     const events: StageEvent[] = [];
     const tracks = [
-      makeTrack({ plexRatingKey: 1, filePath: "/m/corrupt.opus" }),
-      makeTrack({ plexRatingKey: 2, filePath: "/m/fine.opus" }),
+      makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/corrupt.opus" }),
+      makeTrack({ plexRatingKey: 2,
+    artistRatingKey: null, filePath: "/m/fine.opus" }),
     ];
 
     const ctl = startStage({
@@ -489,7 +498,8 @@ describe("startStage — crash handling", () => {
     // transition to the -stream_loop -1 fallback.
     const runner = makeControlledRunner();
     const events: StageEvent[] = [];
-    const track = makeTrack({ plexRatingKey: 1, filePath: "/m/dead.opus" });
+    const track = makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/dead.opus" });
 
     const ctl = startStage({
       stageId: "dead-single",
@@ -553,6 +563,7 @@ describe("startStage — crash handling", () => {
     const runner = makeControlledRunner();
     const deadTrack = makeTrack({
       plexRatingKey: 77,
+    artistRatingKey: null,
       filePath: "/m/dead.opus",
     });
 
@@ -592,8 +603,10 @@ describe("startStage — crash handling", () => {
     const runner = makeControlledRunner();
     const events: StageEvent[] = [];
     const tracks = [
-      makeTrack({ plexRatingKey: 1, filePath: "/m/a.opus" }),
-      makeTrack({ plexRatingKey: 2, filePath: "/m/b.opus" }),
+      makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/a.opus" }),
+      makeTrack({ plexRatingKey: 2,
+    artistRatingKey: null, filePath: "/m/b.opus" }),
     ];
 
     const ctl = startStage({
@@ -816,8 +829,10 @@ describe("startStage — hardening: preflight + TTL + watchdog + deferred track_
     const ctl = startStage({
       stageId: "preflight",
       tracks: [
-        makeTrack({ plexRatingKey: 1, filePath: "/m/missing.opus" }),
-        makeTrack({ plexRatingKey: 2, filePath: "/m/good.opus" }),
+        makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/missing.opus" }),
+        makeTrack({ plexRatingKey: 2,
+    artistRatingKey: null, filePath: "/m/good.opus" }),
       ],
       hlsDir: path.join(work, "preflight"),
       fallbackFile: "/tmp/curating.aac",
@@ -863,8 +878,10 @@ describe("startStage — hardening: preflight + TTL + watchdog + deferred track_
     const ctl = startStage({
       stageId: "dead-ttl",
       tracks: [
-        makeTrack({ plexRatingKey: 1, filePath: "/m/bad.opus" }),
-        makeTrack({ plexRatingKey: 2, filePath: "/m/good.opus" }),
+        makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/bad.opus" }),
+        makeTrack({ plexRatingKey: 2,
+    artistRatingKey: null, filePath: "/m/good.opus" }),
       ],
       hlsDir: path.join(work, "dead-ttl"),
       fallbackFile: "/tmp/curating.aac",
@@ -1083,7 +1100,8 @@ describe("startStage — hardening: preflight + TTL + watchdog + deferred track_
 
     const ctl = startStage({
       stageId: "ttl-recover",
-      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/flaky.opus" })],
+      tracks: [makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/flaky.opus" })],
       hlsDir: path.join(work, "ttl-recover"),
       fallbackFile: "/m/curating.aac",
       onEvent: (e) => events.push(e),
@@ -1183,7 +1201,8 @@ describe("startStage — hardening: preflight + TTL + watchdog + deferred track_
 
     const ctl = startStage({
       stageId: "both-broken",
-      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/gone.opus" })],
+      tracks: [makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/gone.opus" })],
       hlsDir: path.join(work, "both-broken"),
       fallbackFile: "/m/gone-too.aac",
       onEvent: (e) => events.push(e),
@@ -1296,7 +1315,8 @@ describe("startStage — observer safety", () => {
     const runner = makeControlledRunner();
     const ctl = startStage({
       stageId: "stop-snap",
-      tracks: [makeTrack({ plexRatingKey: 7, filePath: "/m/ok.opus" })],
+      tracks: [makeTrack({ plexRatingKey: 7,
+    artistRatingKey: null, filePath: "/m/ok.opus" })],
       hlsDir: path.join(work, "stop-snap"),
       fallbackFile: "/tmp/curating.aac",
       runTrackImpl: runner.run,
@@ -1346,9 +1366,12 @@ describe("startStage — observer safety", () => {
     // track. setTracks queues; the supervisor swaps at the next
     // natural boundary.
     const runner = makeControlledRunner();
-    const t1 = makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" });
-    const t2 = makeTrack({ plexRatingKey: 2, filePath: "/m/2.opus" });
-    const tNew = makeTrack({ plexRatingKey: 99, filePath: "/m/new.opus" });
+    const t1 = makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 2,
+    artistRatingKey: null, filePath: "/m/2.opus" });
+    const tNew = makeTrack({ plexRatingKey: 99,
+    artistRatingKey: null, filePath: "/m/new.opus" });
     const ctl = startStage({
       stageId: "queue",
       tracks: [t1, t2],
@@ -1415,7 +1438,8 @@ describe("startStage — observer safety", () => {
     );
 
     // Plex now has a track — queue it.
-    const t1 = makeTrack({ plexRatingKey: 7, filePath: "/m/7.opus" });
+    const t1 = makeTrack({ plexRatingKey: 7,
+    artistRatingKey: null, filePath: "/m/7.opus" });
     ctl.setTracks([t1]);
 
     // The mock runner's abort listener resolves the curating run
@@ -1437,9 +1461,12 @@ describe("startStage — observer safety", () => {
     // replay from the BEGINNING of the new list every time, starving
     // tracks the listener was rotating toward.
     const runner = makeControlledRunner();
-    const t1 = makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" });
-    const t2 = makeTrack({ plexRatingKey: 2, filePath: "/m/2.opus" });
-    const t3 = makeTrack({ plexRatingKey: 3, filePath: "/m/3.opus" });
+    const t1 = makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 2,
+    artistRatingKey: null, filePath: "/m/2.opus" });
+    const t3 = makeTrack({ plexRatingKey: 3,
+    artistRatingKey: null, filePath: "/m/3.opus" });
     const ctl = startStage({
       stageId: "rotate",
       tracks: [t1, t2],
@@ -1479,10 +1506,14 @@ describe("startStage — observer safety", () => {
 
   it("falls back to index 0 when the last-completed track was removed in the Plex edit", async () => {
     const runner = makeControlledRunner();
-    const t1 = makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" });
-    const t2 = makeTrack({ plexRatingKey: 2, filePath: "/m/2.opus" });
-    const tNewA = makeTrack({ plexRatingKey: 50, filePath: "/m/A.opus" });
-    const tNewB = makeTrack({ plexRatingKey: 60, filePath: "/m/B.opus" });
+    const t1 = makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/1.opus" });
+    const t2 = makeTrack({ plexRatingKey: 2,
+    artistRatingKey: null, filePath: "/m/2.opus" });
+    const tNewA = makeTrack({ plexRatingKey: 50,
+    artistRatingKey: null, filePath: "/m/A.opus" });
+    const tNewB = makeTrack({ plexRatingKey: 60,
+    artistRatingKey: null, filePath: "/m/B.opus" });
     const ctl = startStage({
       stageId: "rotate-fallback",
       tracks: [t1, t2],
@@ -1513,7 +1544,8 @@ describe("startStage — observer safety", () => {
     const runner = makeControlledRunner();
     const ctl = startStage({
       stageId: "drain",
-      tracks: [makeTrack({ plexRatingKey: 1, filePath: "/m/1.opus" })],
+      tracks: [makeTrack({ plexRatingKey: 1,
+    artistRatingKey: null, filePath: "/m/1.opus" })],
       hlsDir: path.join(work, "drain"),
       fallbackFile: "/tmp/curating.aac",
       runTrackImpl: runner.run,

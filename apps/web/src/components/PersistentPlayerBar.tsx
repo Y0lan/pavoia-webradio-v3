@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useStageNow } from "../api/now.ts";
 import { useStages } from "../api/stages.ts";
 import { usePlayback } from "../audio/PlaybackProvider.tsx";
+import { CoverImage } from "./CoverImage.tsx";
 import { EqualizerBars } from "./EqualizerBars.tsx";
 
 /**
@@ -53,17 +54,23 @@ export function PersistentPlayerBar() {
           <span className="hidden sm:inline">on air</span>
         </div>
 
-        {/* Cover slot — gradient placeholder until Plex thumb proxy lands.
-            Becomes <img> in Slice H. */}
+        {/* Cover — Plex thumb when available, stage gradient otherwise.
+            Tap to jump to the playing stage's detail page. */}
         <Link
           to="/stage/$stageId"
           params={{ stageId: stage.id }}
-          className="size-12 shrink-0 overflow-hidden rounded-sm shadow-md ring-1 ring-[var(--color-card-border)]"
-          style={{
-            backgroundImage: `linear-gradient(135deg, ${stage.gradient.from}, ${stage.gradient.via}, ${stage.gradient.to})`,
-          }}
           aria-label={`Go to ${stage.fallbackTitle}`}
-        />
+          className="shrink-0"
+        >
+          <CoverImage
+            plexCoverUrl={now?.track?.coverUrl}
+            className="size-12 rounded-sm shadow-md ring-1 ring-[var(--color-card-border)]"
+            style={{
+              backgroundImage: `linear-gradient(135deg, ${stage.gradient.from}, ${stage.gradient.via}, ${stage.gradient.to})`,
+            }}
+            fallback={null}
+          />
+        </Link>
 
         {/* Track meta */}
         <div className="min-w-0 flex-1">

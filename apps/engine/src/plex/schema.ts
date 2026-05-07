@@ -38,6 +38,7 @@ export const PlexTrackMetadata = z
     type: z.string(),
     title: z.string(),
     grandparentTitle: z.string().nullish(),
+    grandparentRatingKey: z.string().nullish(),
     parentTitle: z.string().nullish(),
     parentYear: z.number().int().nullish(),
     duration: z.number().int().nonnegative().nullish(),

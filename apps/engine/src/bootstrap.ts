@@ -314,6 +314,10 @@ export async function bootstrap(
     ...(config.webDistDir !== undefined
       ? { webDistDir: config.webDistDir }
       : {}),
+    plexProxy: {
+      baseUrl: config.plexBaseUrl,
+      token: config.plexToken,
+    },
   });
 
   let shutdownPromise: Promise<void> | null = null;

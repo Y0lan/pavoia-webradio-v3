@@ -41,3 +41,6 @@ deploy/*.pem
 *.db-shm
 coverage/
 .nyc_output
+
+# Claude Code harness local state — never commit
+.claude/

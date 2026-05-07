@@ -88,7 +88,7 @@ export function PersistentPlayerBar() {
           <div className="truncate font-sans text-sm font-medium text-[var(--color-text)]">
             {now?.track?.title ?? (isLoading ? "Buffering…" : "—")}
           </div>
-          <div className="truncate font-serif text-xs italic text-[var(--color-text-soft)]">
+          <div className="truncate text-xs italic text-[var(--color-text-soft)]">
             {now?.track?.artist ?? (isLoading ? "" : "—")}
           </div>
         </div>

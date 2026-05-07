@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Belleza&family=Caveat:wght@400;600;700&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Instrument+Serif:ital@0;1&family=Sora:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Belleza&family=Caveat:wght@400;600;700&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Sora:wght@300;400;500;600;700&display=swap");
 @import "tailwindcss";
 
 /* ==========================================================================
@@ -13,13 +13,13 @@
   /* Type — three-font system. Sora is the unmarked default. */
   --font-sans: "Sora", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Menlo", monospace;
-  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-serif: Georgia, ui-serif, serif; /* fallback only — no Google import */
   /* Belleza: pavoia.com's nav + display sans. Used for the PÂVOIA
      wordmark in the sidebar / mobile header.
      Caveat: handwritten cursive, matches pavoia.com's page-title
      treatment (e.g. their "location" hero). Used for stage titles. */
   --font-display: "Belleza", "Sora", sans-serif;
-  --font-script: "Caveat", "Instrument Serif", cursive;
+  --font-script: "Caveat", cursive;
 
   /* Surfaces — warm near-black with a red undertone. NOT cool-blue dark. */
   --color-bg: #080505;
@@ -32,7 +32,7 @@
   /* Text — warm off-whites, never clinical. */
   --color-text: #e8ddd4;
   --color-text-soft: #8f7a6a;
-  --color-text-faint: #4f3d30;
+  --color-text-faint: #7a6555;
 
   /* Primary accent — red→amber. The signature warmth. */
   --color-accent: #e85020;

@@ -30,7 +30,7 @@ export function StageDetailPage() {
   if (stagesError) {
     return (
       <section className="px-8 py-12">
-        <h2 className="font-serif text-2xl italic text-[var(--color-text)]">
+        <h2 className="text-2xl font-medium text-[var(--color-text)]">
           engine unreachable
         </h2>
         <p className="mt-2 font-sans text-sm text-[var(--color-text-soft)]">
@@ -46,7 +46,7 @@ export function StageDetailPage() {
   if (!stage || stage.disabled) {
     return (
       <section className="px-8 py-12">
-        <h2 className="font-serif text-2xl italic text-[var(--color-text)]">
+        <h2 className="text-2xl font-medium text-[var(--color-text)]">
           {stage?.disabled ? "stage unavailable" : "stage not found"}
         </h2>
         <p className="mt-2 font-sans text-sm text-[var(--color-text-soft)]">

@@ -61,7 +61,7 @@ export function HomePage() {
             }}
           />
 
-          <p className="mt-5 text-balance text-center font-serif text-2xl italic leading-snug text-[var(--color-text)] md:text-3xl">
+          <p className="mt-5 text-balance text-center font-script text-3xl leading-snug text-[var(--color-text)] md:text-4xl">
             eleven stages, one night,{" "}
             <span className="text-[var(--color-text-soft)]">
               picked apart from the algorithm.

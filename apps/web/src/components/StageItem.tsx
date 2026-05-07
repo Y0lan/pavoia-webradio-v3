@@ -58,7 +58,7 @@ export function StageItem({
               //
             </span>
             <span
-              className="truncate font-serif text-[15px] italic text-[var(--color-text-soft)]"
+              className="truncate text-[15px] italic text-[var(--color-text-soft)]"
             >
               {stage.fallbackTitle.toLowerCase()}
             </span>

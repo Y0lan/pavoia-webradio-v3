@@ -20,7 +20,7 @@ export function BusMysteryCard({ open, onClose }: BusMysteryCardProps) {
 
         <div aria-hidden="true" className="text-7xl leading-none">🚌</div>
 
-        <h2 className="font-serif text-2xl italic leading-tight text-[var(--color-text)] md:text-3xl">
+        <h2 className="font-script text-3xl leading-tight text-[var(--color-text)] md:text-4xl">
           some things must be
           <br />
           experienced in person

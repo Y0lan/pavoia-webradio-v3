@@ -218,13 +218,13 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
               <button
                 type="button"
                 onClick={() => openArtist(track.artistRatingKey!)}
-                className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] underline-offset-4 transition-colors hover:text-[var(--color-text)] hover:underline md:text-xl"
+                className="mt-2 truncate text-lg italic text-[var(--color-text-soft)] underline-offset-4 transition-colors hover:text-[var(--color-text)] hover:underline md:text-xl"
                 aria-label={`Open ${track.artist} details`}
               >
                 {track.artist}
               </button>
             ) : (
-              <p className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] md:text-xl">
+              <p className="mt-2 truncate text-lg italic text-[var(--color-text-soft)] md:text-xl">
                 {track.artist}
               </p>
             )}
@@ -238,7 +238,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
             <h2 className="font-sans text-2xl font-semibold text-[var(--color-text)] md:text-3xl">
               {placeholderTitle(status)}
             </h2>
-            <p className="mt-2 font-serif text-base italic text-[var(--color-text-soft)]">
+            <p className="mt-2 text-base italic text-[var(--color-text-soft)]">
               {placeholderSubtitle(status, stage)}
             </p>
           </>

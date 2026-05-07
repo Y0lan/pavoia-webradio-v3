@@ -177,7 +177,7 @@ export function ArtistDrawer() {
                   <div className="size-24 shrink-0 rounded-sm bg-[var(--color-bg-soft)] ring-1 ring-[var(--color-card-border)]" />
                 )}
                 <div className="min-w-0 flex-1">
-                  <h2 className="line-clamp-2 font-serif text-2xl italic leading-tight text-[var(--color-text)]">
+                  <h2 className="line-clamp-2 font-script text-3xl leading-tight text-[var(--color-text)]">
                     {data.title}
                   </h2>
                   {data.country.length > 0 || data.genre.length > 0 ? (
@@ -190,7 +190,7 @@ export function ArtistDrawer() {
 
               {/* Bio */}
               {data.summary ? (
-                <div className="mt-6 border-l-2 border-[var(--color-accent)] pl-4 font-serif text-sm italic leading-relaxed text-[var(--color-text-soft)]">
+                <div className="mt-6 border-l-2 border-[var(--color-accent)] pl-4 text-sm italic leading-relaxed text-[var(--color-text-soft)]">
                   {data.summary}
                 </div>
               ) : (

@@ -28,7 +28,7 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
             festival's typographic mark. The eye GIF is the home-page
             hero, this sidebar header is text. */}
         <h1
-          className="font-sans text-3xl font-extrabold tracking-[0.08em] text-[var(--color-text)] md:text-[28px]"
+          className="font-display text-[34px] font-normal tracking-[0.08em] text-[var(--color-text)] md:text-[36px]"
           style={{ textShadow: "0 0 24px rgba(232,80,32,0.15)" }}
         >
           PÂVOIA

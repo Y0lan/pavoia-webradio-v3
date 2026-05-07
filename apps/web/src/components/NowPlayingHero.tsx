@@ -146,7 +146,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
 
       {/* Stage title */}
       <h1
-        className="font-serif text-3xl italic leading-tight text-[var(--color-text)] md:text-4xl"
+        className="font-script text-5xl font-semibold leading-none text-[var(--color-text)] md:text-6xl"
       >
         {stage.fallbackTitle.toLowerCase()}
       </h1>

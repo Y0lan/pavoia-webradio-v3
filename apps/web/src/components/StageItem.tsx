@@ -64,12 +64,6 @@ export function StageItem({
             </span>
           </div>
           </div>
-        <span
-          className="text-lg opacity-50 transition-opacity group-hover:opacity-90"
-          aria-hidden="true"
-        >
-          {stage.icon}
-        </span>
       </button>
     );
   }
@@ -143,15 +137,6 @@ export function StageItem({
         />
       ) : null}
 
-      <span
-        className="text-lg transition-all duration-300"
-        aria-hidden="true"
-        style={{
-          opacity: isActive || isLoadedHere ? 1 : 0.55,
-        }}
-      >
-        {stage.icon}
-      </span>
     </Link>
   );
 }

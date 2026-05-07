@@ -1,4 +1,4 @@
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import type { Stage } from "@pavoia/shared";
 
 import { coverProxyUrl } from "../api/plex.ts";
@@ -30,6 +30,7 @@ interface StageAtmosphereProps {
  */
 export function StageAtmosphere({ stage, plexCoverUrl }: StageAtmosphereProps) {
   const coverSrc = coverProxyUrl(plexCoverUrl);
+  const reduce = useReducedMotion();
 
   return (
     <div className="absolute inset-0 overflow-hidden">
@@ -50,20 +51,27 @@ export function StageAtmosphere({ stage, plexCoverUrl }: StageAtmosphereProps) {
           aria-hidden="true"
           className="absolute inset-0 size-full object-cover"
           initial={{ opacity: 0, scale: 1.1, x: -10 }}
-          animate={{
-            opacity: 0.55,
-            // Slow ken-burns drift — scale + a hint of x/y motion so
-            // the backdrop looks alive without distracting.
-            scale: [1.1, 1.18, 1.12, 1.1],
-            x: [-10, 12, -8, -10],
-            y: [0, -8, 6, 0],
-          }}
-          transition={{
-            opacity: { duration: 1.2, ease: "easeOut" },
-            scale: { duration: 24, ease: "easeInOut", repeat: Infinity },
-            x: { duration: 32, ease: "easeInOut", repeat: Infinity },
-            y: { duration: 28, ease: "easeInOut", repeat: Infinity },
-          }}
+          animate={
+            reduce
+              ? { opacity: 0.55, scale: 1.1, x: -10, y: 0 }
+              : {
+                  opacity: 0.55,
+                  // Slow ken-burns drift — scale + hint of x/y motion.
+                  scale: [1.1, 1.18, 1.12, 1.1],
+                  x: [-10, 12, -8, -10],
+                  y: [0, -8, 6, 0],
+                }
+          }
+          transition={
+            reduce
+              ? { opacity: { duration: 1.2, ease: "easeOut" } }
+              : {
+                  opacity: { duration: 1.2, ease: "easeOut" },
+                  scale: { duration: 24, ease: "easeInOut", repeat: Infinity },
+                  x: { duration: 32, ease: "easeInOut", repeat: Infinity },
+                  y: { duration: 28, ease: "easeInOut", repeat: Infinity },
+                }
+          }
           style={{ filter: "blur(48px) saturate(1.25)" }}
         />
       ) : null}
@@ -75,8 +83,10 @@ export function StageAtmosphere({ stage, plexCoverUrl }: StageAtmosphereProps) {
       <motion.div
         aria-hidden="true"
         className="absolute inset-0"
-        animate={{ opacity: [0.55, 0.85, 0.55] }}
-        transition={{ duration: 8, ease: "easeInOut", repeat: Infinity }}
+        animate={reduce ? { opacity: 0.7 } : { opacity: [0.55, 0.85, 0.55] }}
+        transition={
+          reduce ? { duration: 0 } : { duration: 8, ease: "easeInOut", repeat: Infinity }
+        }
         style={{
           background: `
             radial-gradient(ellipse 90% 60% at 25% 15%, ${stage.gradient.from}99, transparent 55%),
@@ -87,13 +97,17 @@ export function StageAtmosphere({ stage, plexCoverUrl }: StageAtmosphereProps) {
       <motion.div
         aria-hidden="true"
         className="absolute inset-0"
-        animate={{ opacity: [0.4, 0.75, 0.4] }}
-        transition={{
-          duration: 11,
-          ease: "easeInOut",
-          repeat: Infinity,
-          delay: 2,
-        }}
+        animate={reduce ? { opacity: 0.55 } : { opacity: [0.4, 0.75, 0.4] }}
+        transition={
+          reduce
+            ? { duration: 0 }
+            : {
+                duration: 11,
+                ease: "easeInOut",
+                repeat: Infinity,
+                delay: 2,
+              }
+        }
         style={{
           background: `
             radial-gradient(ellipse 60% 70% at 75% 25%, ${stage.accent}33, transparent 55%),

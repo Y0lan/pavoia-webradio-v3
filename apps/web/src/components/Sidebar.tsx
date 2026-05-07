@@ -34,7 +34,7 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
         />
         <p className="mt-2 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
           <span className="text-[var(--color-accent-dim)]">//</span>{" "}
-          gaende's webradio · 11 stages
+          PAVOIA webradio · made by gaende
         </p>
       </header>
 

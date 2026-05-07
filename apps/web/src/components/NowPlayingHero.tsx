@@ -127,7 +127,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
   };
 
   return (
-    <div className="flex h-full flex-col items-center overflow-hidden px-6 py-4 md:px-8 md:py-6">
+    <div className="flex h-full flex-col items-center overflow-hidden px-6 py-3 md:px-8 md:py-5">
       {/* Stage label (mono, prefixed with //) */}
       <div className="mb-2 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
         <span
@@ -154,7 +154,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
       {/* Stage description — full text, not truncated. Sidebar shows
           a one-clause preview; the page is where the room's vibe
           gets to breathe. */}
-      <p className="mt-3 max-w-md text-balance text-center font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
+      <p className="mt-2 max-w-md text-balance text-center font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
         {stage.fallbackDescription}
       </p>
 
@@ -162,7 +162,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
           centers the cover in it. The cover itself is sized via a
           viewport-aware max-width so it scales down on shorter
           screens (dvh aware) and never overflows wide containers. */}
-      <div className="relative my-3 flex w-full flex-1 items-center justify-center md:my-4">
+      <div className="relative my-2 flex w-full flex-1 items-center justify-center md:my-3">
         <CoverImage
           plexCoverUrl={track?.coverUrl}
           className="aspect-square w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
@@ -252,7 +252,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
           the engine just emitted. When the stage is selected but not
           playing, show the engine's true progress (no offset). */}
       {track && startedAt !== null && status === "playing" ? (
-        <div className="mt-4 w-full max-w-md">
+        <div className="mt-3 w-full max-w-md">
           <TrackProgress
             startedAt={startedAt}
             durationSec={track.durationSec}
@@ -262,8 +262,10 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
         </div>
       ) : null}
 
-      {/* Play/pause — large, accent-ringed, the festival hero button */}
-      <div className="mt-4">
+      {/* Play/pause — large, accent-ringed, the festival hero button.
+          Wrapper is items-center so button + caption both sit at the
+          same horizontal center regardless of caption length. */}
+      <div className="mt-3 flex flex-col items-center">
         <button
           type="button"
           onClick={onTogglePlay}
@@ -320,7 +322,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
 
         {/* Status caption under the button */}
         <p
-          className="mt-4 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]"
+          className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]"
           aria-live="polite"
         >
           {captionForState(displayState, isThisStageActive)}

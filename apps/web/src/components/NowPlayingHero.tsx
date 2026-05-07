@@ -158,16 +158,22 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
         {stage.fallbackDescription}
       </p>
 
-      {/* Cover art — flex-1 + min-h-0 makes this section absorb the
-          remaining vertical space, and the cover scales as a square
-          to fill that height (or the available width, whichever is
-          smaller). The whole hero fits one viewport this way. */}
-      <div className="relative my-3 flex min-h-0 w-full flex-1 items-center justify-center md:my-5">
+      {/* Cover art — flex-1 absorbs the remaining vertical space and
+          centers the cover in it. The cover itself is sized via a
+          viewport-aware max-width so it scales down on shorter
+          screens (dvh aware) and never overflows wide containers. */}
+      <div className="relative my-3 flex w-full flex-1 items-center justify-center md:my-4">
         <CoverImage
           plexCoverUrl={track?.coverUrl}
-          className="aspect-square h-full max-h-full max-w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
+          className="aspect-square w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
           loading="eager"
           style={{
+            // Cap to whichever is smaller: 80% of viewport width, or
+            // the vertical room left after the title block + meta +
+            // play button + persistent bar slack.
+            maxWidth: "min(80vw, calc(100dvh - 420px))",
+            // Vinyl gradient as the fallback backdrop (visible only
+            // when the cover img isn't loaded yet / failed).
             backgroundImage: `
               radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
               radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),

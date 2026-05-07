@@ -167,7 +167,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
             outer flex container (which is full viewport-width). */}
         <div
           className="relative aspect-square"
-          style={{ width: "min(60vw, 38vh, max(0px, calc(100dvh - 540px)))" }}
+          style={{ width: "min(60vw, 38dvh, max(0px, calc(100dvh - 540px)))" }}
         >
           <CoverImage
             plexCoverUrl={track?.coverUrl}

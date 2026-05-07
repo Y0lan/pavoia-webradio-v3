@@ -111,7 +111,7 @@ export function InfoDialog({ open, onClose }: InfoDialogProps) {
           <button
             type="button"
             onClick={onClose}
-            className="border border-[var(--color-card-border-strong)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+            className="border border-[var(--color-card-border-strong)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:border-[var(--color-accent)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/40"
           >
             close
           </button>
@@ -137,7 +137,7 @@ function SocialIconButton({
       rel="noopener noreferrer"
       aria-label={label}
       title={label}
-      className="flex size-10 items-center justify-center rounded-sm border border-[var(--color-card-border)] bg-[var(--color-bg-soft)] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent-dim)] hover:bg-[rgba(232,80,32,0.06)] hover:text-[var(--color-text)]"
+      className="flex size-10 items-center justify-center rounded-sm border border-[var(--color-card-border)] bg-[var(--color-bg-soft)] text-[var(--color-text-soft)] transition-colors hover:border-[var(--color-accent-dim)] hover:bg-[rgba(232,80,32,0.06)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:border-[var(--color-accent)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/40"
     >
       {icon}
     </a>

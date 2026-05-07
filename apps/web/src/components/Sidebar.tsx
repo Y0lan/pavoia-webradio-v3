@@ -38,7 +38,7 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
           <button
             type="button"
             onClick={onOpenInfo}
-            className="font-mono text-[var(--color-accent)] underline-offset-4 transition-colors hover:underline"
+            className="font-mono text-[var(--color-accent)] underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:underline"
             aria-label="About gaende"
           >
             gaende
@@ -96,7 +96,7 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
         <button
           type="button"
           onClick={onOpenInfo}
-          className="group flex w-full items-center gap-2.5 rounded-sm border border-[var(--color-card-border)] px-3 py-2.5 transition-colors hover:border-[var(--color-accent-dim)] hover:bg-[var(--color-bg-soft)]"
+          className="group flex w-full items-center gap-2.5 rounded-sm border border-[var(--color-card-border)] px-3 py-2.5 transition-colors hover:border-[var(--color-accent-dim)] hover:bg-[var(--color-bg-soft)] focus-visible:outline-none focus-visible:border-[var(--color-accent)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/40"
           aria-label="About Pavoia"
         >
           <span

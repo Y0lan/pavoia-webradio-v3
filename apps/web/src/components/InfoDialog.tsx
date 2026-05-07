@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Dialog } from "./Dialog.tsx";
 
 interface InfoDialogProps {
@@ -128,7 +130,7 @@ function SocialIconButton({
 }: {
   href: string;
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <a

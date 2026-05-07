@@ -18,7 +18,7 @@ export function BusMysteryCard({ open, onClose }: BusMysteryCardProps) {
           // stage 11 · 🚌
         </p>
 
-        <div className="text-7xl leading-none">🚌</div>
+        <div aria-hidden="true" className="text-7xl leading-none">🚌</div>
 
         <h2 className="font-serif text-2xl italic leading-tight text-[var(--color-text)] md:text-3xl">
           some things must be

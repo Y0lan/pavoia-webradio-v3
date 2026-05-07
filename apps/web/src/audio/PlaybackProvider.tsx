@@ -54,6 +54,10 @@ export interface PlaybackContextValue {
 
 const Ctx = createContext<PlaybackContextValue | null>(null);
 
+/** Max consecutive fatal-error recoveries before we give up and
+ *  surface the failure. ~3 s per retry × 5 = 15 s total best effort. */
+const MAX_FATAL_RECOVERY_ATTEMPTS = 5;
+
 interface PlaybackProviderProps {
   children: ReactNode;
 }
@@ -66,6 +70,10 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
   // Bumped on every stream switch so a stale play() rejection from a
   // torn-down stream can't overwrite the new stream's state.
   const streamVersionRef = useRef(0);
+  // Bounded fatal-error retries — without this an unrecoverable
+  // MEDIA_ERROR could spin recoverMediaError → startLoad → MEDIA_ERROR
+  // forever. Reset on a clean "playing" event below.
+  const recoveryAttemptsRef = useRef(0);
 
   const [playingStageId, setPlayingStageId] = useState<string | null>(null);
   const [state, setState] = useState<PlaybackState>("idle");
@@ -188,6 +196,19 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
           // internally (segment retries, playhead nudges).
           if (!data.fatal) return;
 
+          // Bounded retry budget. Without this, an unrecoverable
+          // MEDIA_ERROR spins startLoad → MEDIA_ERROR → startLoad
+          // forever and the user sees "buffering…" with no audio
+          // and no escape. Five attempts × ~3 s each = 15 s of best
+          // effort before we surface a real error the listener can
+          // act on. Counter resets on the next "playing" event.
+          if (recoveryAttemptsRef.current >= MAX_FATAL_RECOVERY_ATTEMPTS) {
+            setState("error");
+            setError(`${data.type}: ${data.details} (recovery exhausted)`);
+            return;
+          }
+          recoveryAttemptsRef.current += 1;
+
           // Fatal errors — try to recover before giving up. hls.js
           // exposes startLoad() for network and recoverMediaError()
           // for decoder issues. We chain MEDIA_ERROR → startLoad as
@@ -262,8 +283,16 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onPlay = () => setState("playing");
-    const onPlaying = () => setState("playing");
+    const onPlay = () => {
+      // Successful (re)start — clear the fatal-error retry budget
+      // so a future blip gets a fresh 5 attempts to recover.
+      recoveryAttemptsRef.current = 0;
+      setState("playing");
+    };
+    const onPlaying = () => {
+      recoveryAttemptsRef.current = 0;
+      setState("playing");
+    };
     const onPause = () => {
       setState((prev) => (prev === "playing" ? "paused" : prev));
     };

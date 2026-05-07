@@ -6,28 +6,44 @@ import { useArtistDrawer } from "./ArtistDrawer.tsx";
 import { CoverImage } from "./CoverImage.tsx";
 import { EqualizerBars } from "./EqualizerBars.tsx";
 
+/* Estimated HLS live latency for our 3-second-segment / 6-segment-window
+   engine setup with hls.js's `liveSyncDurationCount: 3`. The bar
+   subtracts this when this stage is the actively-playing one so the
+   visual progress matches what the listener actually hears, instead
+   of the engine's "now"-cursor that's ~10 s ahead of the speaker. */
+const HLS_AUDIO_LATENCY_SEC = 10;
+
 /* Local TrackProgress — small enough to inline. Updates every second
    from `startedAt`, clamps to [0, durationSec], renders a thin accent
-   bar with mono timestamps below. */
+   bar with mono timestamps below.
+
+   `audioOffsetSec` accounts for the gap between when the engine puts
+   a segment on the wire and when the listener actually hears it
+   (HLS live = ~3 segments * 3 s + fetch latency ≈ 10 s). When this
+   stage is the active one in the player, we show the LISTENER's
+   position, not the engine's — otherwise the progress bar is ~10 s
+   ahead of what they're hearing. */
 function TrackProgress({
   startedAt,
   durationSec,
   accent,
+  audioOffsetSec,
 }: {
   startedAt: number;
   durationSec: number;
   accent: string;
+  audioOffsetSec: number;
 }) {
   const [elapsedSec, setElapsedSec] = useState(() =>
-    computeElapsed(startedAt, durationSec),
+    computeElapsed(startedAt, durationSec, audioOffsetSec),
   );
   useEffect(() => {
-    setElapsedSec(computeElapsed(startedAt, durationSec));
+    setElapsedSec(computeElapsed(startedAt, durationSec, audioOffsetSec));
     const id = setInterval(() => {
-      setElapsedSec(computeElapsed(startedAt, durationSec));
+      setElapsedSec(computeElapsed(startedAt, durationSec, audioOffsetSec));
     }, 1_000);
     return () => clearInterval(id);
-  }, [startedAt, durationSec]);
+  }, [startedAt, durationSec, audioOffsetSec]);
 
   const pct =
     durationSec > 0
@@ -57,8 +73,12 @@ function TrackProgress({
   );
 }
 
-function computeElapsed(startedAt: number, durationSec: number): number {
-  const sec = Math.max(0, (Date.now() - startedAt) / 1000);
+function computeElapsed(
+  startedAt: number,
+  durationSec: number,
+  audioOffsetSec: number,
+): number {
+  const sec = Math.max(0, (Date.now() - startedAt) / 1000 - audioOffsetSec);
   return Math.min(durationSec, sec);
 }
 
@@ -130,6 +150,13 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
       >
         {stage.fallbackTitle.toLowerCase()}
       </h1>
+
+      {/* Stage description — full text, not truncated. Sidebar shows
+          a one-clause preview; the page is where the room's vibe
+          gets to breathe. */}
+      <p className="mt-3 max-w-md text-balance text-center font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
+        {stage.fallbackDescription}
+      </p>
 
       {/* Cover art — Plex thumb when available; vinyl gradient when
           missing OR when the proxy returns 404/502/etc. */}
@@ -211,13 +238,18 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
         )}
       </div>
 
-      {/* Progress bar — only when we have a real track */}
+      {/* Progress bar — only when we have a real track. When this
+          stage is the actively playing one, apply HLS_AUDIO_LATENCY_SEC
+          so the bar reflects what the listener is HEARING, not what
+          the engine just emitted. When the stage is selected but not
+          playing, show the engine's true progress (no offset). */}
       {track && startedAt !== null && status === "playing" ? (
         <div className="mt-10 w-full max-w-md">
           <TrackProgress
             startedAt={startedAt}
             durationSec={track.durationSec}
             accent={stage.accent}
+            audioOffsetSec={isThisStageActive ? HLS_AUDIO_LATENCY_SEC : 0}
           />
         </div>
       ) : null}
@@ -262,13 +294,16 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
               <rect x="14" y="4" width="4" height="16" rx="1" />
             </svg>
           ) : (
+            // Play triangle is right-pointing, so its visual mass is
+            // already biased to the left of the SVG canvas. Use a
+            // viewBox that places the triangle's centroid at the SVG
+            // center — no margin offset needed, button stays centered.
             <svg
-              viewBox="0 0 24 24"
+              viewBox="2 2 20 20"
               width="36"
               height="36"
               fill={stage.accent}
               aria-hidden="true"
-              className="ml-1.5"
             >
               <path d="M8 5.14v13.72L19 12 8 5.14z" />
             </svg>

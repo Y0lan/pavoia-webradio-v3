@@ -152,23 +152,59 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
 
       if (HlsCtor.isSupported()) {
         const hls = new HlsCtor({
-          backBufferLength: 30,
-          maxBufferLength: 30,
-          liveSyncDuration: 6,
+          // Resilience tuning — listener feedback: "audio sometimes
+          // stops to load, I don't want the audio to stop." The
+          // engine emits 3 s segments with a 6-segment rolling
+          // window (18 s on disk). Default hls.js settings are
+          // tuned for low-latency live, which is sensitive to
+          // network blips. We trade ~3-5 s of extra latency for
+          // playback that keeps going through hiccups.
+          backBufferLength: 60,
+          maxBufferLength: 60, // hold up to 60 s buffered
+          maxMaxBufferLength: 600, // can grow further if needed
+          // Stay further back from the live edge — gives more cushion
+          // before a network stall starves the player.
+          liveSyncDurationCount: 3,
+          // Re-arm fragment loads more aggressively before giving up.
+          fragLoadingTimeOut: 20_000,
+          fragLoadingMaxRetry: 8,
+          fragLoadingRetryDelay: 500,
+          manifestLoadingTimeOut: 12_000,
+          manifestLoadingMaxRetry: 6,
+          levelLoadingTimeOut: 12_000,
+          levelLoadingMaxRetry: 6,
+          // hls.js's built-in stall-handling: nudge the playhead
+          // forward when the buffer underruns instead of pausing.
+          nudgeMaxRetry: 8,
+          nudgeOffset: 0.2,
         });
         hlsRef.current = hls;
         hls.loadSource(streamUrl);
         hls.attachMedia(audio);
         hls.on(HlsCtor.Events.ERROR, (_event, data) => {
           if (versionAtCall !== streamVersionRef.current) return;
+
+          // Non-fatal errors — log, keep going. hls.js handles them
+          // internally (segment retries, playhead nudges).
           if (!data.fatal) return;
+
+          // Fatal errors — try to recover before giving up. hls.js
+          // exposes startLoad() for network and recoverMediaError()
+          // for decoder issues. We chain MEDIA_ERROR → startLoad as
+          // a last-ditch retry before declaring permanent failure.
           switch (data.type) {
             case HlsCtor.ErrorTypes.NETWORK_ERROR:
               hls.startLoad();
               setState("loading");
               return;
             case HlsCtor.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
+              try {
+                hls.recoverMediaError();
+              } catch {
+                // recoverMediaError can throw on really bad state.
+                // Try a fresh load as a fallback.
+                hls.startLoad();
+              }
               setState("loading");
               return;
             default:

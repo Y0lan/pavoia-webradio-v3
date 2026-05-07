@@ -89,13 +89,15 @@ export function PlayPauseButton({
           <rect x="14" y="4" width="4" height="16" rx="1" />
         </svg>
       ) : (
+        // Tighter viewBox so the right-pointing triangle's centroid
+        // lands on the SVG center — keeps the button visually
+        // balanced without a left/right margin hack.
         <svg
-          viewBox="0 0 24 24"
+          viewBox="2 2 20 20"
           width={iconSize + 2}
           height={iconSize + 2}
           fill={accent}
           aria-hidden="true"
-          className="ml-1"
         >
           <path d="M8 5.14v13.72L19 12 8 5.14z" />
         </svg>

@@ -31,21 +31,15 @@ export function InfoDialog({ open, onClose }: InfoDialogProps) {
         <p className="font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
           Hey, I'm{" "}
           <strong className="text-[var(--color-text)]">gaende</strong>.
-          I dig music for a living, the hard way — albums, hidden
-          B-sides, forgotten 90s vinyl, daily diggings. Every track I
-          fall for, I picture which stage of{" "}
+          I listen to new music every day — full albums, front to
+          back, every genre. Six years of that is what fed this whole
+          database. Every track I fall for, I picture which stage of{" "}
           <strong className="text-[var(--color-text)]">Pâvoia</strong>{" "}
-          it belongs to. What grew out of that is{" "}
+          it belongs to. The{" "}
           <strong className="text-[var(--color-text)]">eleven
           stages</strong>{" "}
-          you can tune into right now — the rest of the night carries
-          on around you.
-        </p>
-
-        {/* Bus stage hint */}
-        <p className="rounded-sm border border-[rgba(255,170,0,0.18)] bg-[rgba(255,170,0,0.04)] px-3 py-2 font-sans text-xs italic leading-relaxed text-[var(--color-text-soft)]">
-          🚌 The bus stage isn't on the wire — it's out there at
-          Pâvoia. Find it, hop on, let the music surprise you.
+          here are what grew out of that — pick one, the rest of the
+          night carries on around you.
         </p>
 
         {/* Socials — pâvoia + the curator, side-by-side groups */}

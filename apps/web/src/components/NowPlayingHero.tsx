@@ -151,9 +151,8 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
         {stage.fallbackTitle.toLowerCase()}
       </h1>
 
-      {/* Stage description — full text, not truncated. Sidebar shows
-          a one-clause preview; the page is where the room's vibe
-          gets to breathe. */}
+      {/* Stage description — line-clamped to 2 so a long description
+          can't push the play button past the persistent bar. */}
       <p className="mt-1 line-clamp-2 max-w-md text-balance text-center font-sans text-xs leading-relaxed text-[var(--color-text-soft)] md:text-sm">
         {stage.fallbackDescription}
       </p>

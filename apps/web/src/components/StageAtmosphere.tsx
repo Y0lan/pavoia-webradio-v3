@@ -33,6 +33,13 @@ export function StageAtmosphere({ stage, plexCoverUrl }: StageAtmosphereProps) {
 
   return (
     <div className="absolute inset-0 overflow-hidden">
+      {/* Base layer — solid stage color so the page has a fallback
+          when both the blurred cover and the orbs are mid-fade. */}
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: stage.gradient.to }}
+      />
+
       {/* Layer 1 — blurred cover backdrop. Reset opacity & key on
           coverSrc so a new track fades in cleanly. */}
       {coverSrc ? (
@@ -93,13 +100,6 @@ export function StageAtmosphere({ stage, plexCoverUrl }: StageAtmosphereProps) {
             radial-gradient(ellipse 80% 60% at 20% 85%, ${stage.gradient.via}66, transparent 60%)
           `,
         }}
-      />
-
-      {/* Layer 3 — base color so the page has a fallback when both
-          cover + orbs are mid-fade. */}
-      <div
-        className="absolute inset-0 -z-10"
-        style={{ backgroundColor: stage.gradient.to }}
       />
 
       {/* Vignette — pulls focus toward center. */}

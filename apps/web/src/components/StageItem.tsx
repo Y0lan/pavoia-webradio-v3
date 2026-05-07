@@ -63,7 +63,7 @@ export function StageItem({
               {stage.fallbackTitle.toLowerCase()}
             </span>
           </div>
-          <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
+          <div className="mt-0.5 truncate font-sans text-xs text-[var(--color-text-soft)]">
             no audio · ui only
           </div>
         </div>
@@ -131,7 +131,7 @@ export function StageItem({
             {stage.fallbackTitle.toLowerCase()}
           </span>
         </div>
-        <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
+        <div className="mt-0.5 truncate font-sans text-xs leading-snug text-[var(--color-text-soft)]">
           {stage.fallbackDescription.split(/[.,]/)[0]}
         </div>
       </div>

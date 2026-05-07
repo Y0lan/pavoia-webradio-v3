@@ -33,8 +33,9 @@ export function HomePage() {
 
       <div className="relative z-10 flex min-h-dvh flex-col px-6 py-10 md:px-12 md:py-16">
         {/* Top metadata strip */}
-        <header className="font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
-          // pavoia · webradio · est. 2026 · curated by{" "}
+        <header className="font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
+          <span className="text-[var(--color-accent-dim)]">//</span>{" "}
+          pavoia · webradio · est. 2026 · curated by{" "}
           <span className="text-[var(--color-accent)]">gaende</span>
         </header>
 
@@ -75,7 +76,7 @@ export function HomePage() {
             >
               ▸
             </span>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]">
+            <p className="font-mono text-[12px] uppercase tracking-[0.18em] text-[var(--color-text-soft)]">
               {isLoading
                 ? "loading stages…"
                 : isError

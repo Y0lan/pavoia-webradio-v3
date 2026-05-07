@@ -37,13 +37,14 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
             PAVOIA
           </h1>
         </div>
-        <p className="mt-1.5 pl-7 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-text-faint)]">
-          // gaende's webradio · 11 stages
+        <p className="mt-2 pl-7 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
+          <span className="text-[var(--color-accent-dim)]">//</span>{" "}
+          gaende's webradio · 11 stages
         </p>
       </header>
 
       <div className="px-5 pb-2 pt-3">
-        <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--color-text-faint)]">
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-soft)]">
           <span className="h-px flex-1 bg-[var(--color-card-border-strong)]" />
           <span>stages</span>
           <span className="h-px flex-1 bg-[var(--color-card-border-strong)]" />
@@ -85,21 +86,23 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
         )}
       </nav>
 
-      {/* Footer — about button as a clear CTA, NOT buried */}
-      <footer className="border-t border-[var(--color-card-border)] px-3 py-3">
+      {/* Footer — About as a real CTA. Bordered button, accent prefix,
+          accent-tinted border on hover. The footer sticks at the
+          bottom of the column thanks to nav's flex-1 grow. */}
+      <footer className="shrink-0 border-t border-[var(--color-card-border)] px-3 py-3">
         <button
           type="button"
           onClick={onOpenInfo}
-          className="group flex w-full items-center gap-2 rounded-sm px-3 py-2 transition-colors hover:bg-[var(--color-bg-soft)]"
+          className="group flex w-full items-center gap-2.5 rounded-sm border border-[var(--color-card-border)] px-3 py-2.5 transition-colors hover:border-[var(--color-accent-dim)] hover:bg-[var(--color-bg-soft)]"
           aria-label="About Pavoia"
         >
           <span
-            className="font-mono text-[11px] text-[var(--color-accent-dim)]"
+            className="font-mono text-[13px] font-bold text-[var(--color-accent)] transition-colors"
             aria-hidden="true"
           >
             ?
           </span>
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-soft)] transition-colors group-hover:text-[var(--color-text)]">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-text-soft)] transition-colors group-hover:text-[var(--color-text)]">
             about · readme
           </span>
         </button>

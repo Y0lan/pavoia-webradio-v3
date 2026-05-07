@@ -51,8 +51,10 @@ export function Layout() {
     <div className="relative flex min-h-dvh flex-col md:flex-row">
       <MobileHeader onOpenDrawer={() => setDrawerOpen(true)} />
 
-      {/* Desktop sidebar */}
-      <div className="hidden md:flex md:flex-col">
+      {/* Desktop sidebar — full-viewport height + sticky so the footer
+          About button stays visible regardless of how tall the main
+          column gets. */}
+      <div className="hidden md:sticky md:top-0 md:flex md:h-dvh md:flex-col">
         <Sidebar
           activeStageId={activeStageId}
           onOpenInfo={() => setInfoOpen(true)}

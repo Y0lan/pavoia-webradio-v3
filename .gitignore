@@ -44,3 +44,7 @@ coverage/
 
 # Claude Code harness local state — never commit
 .claude/
+
+# QA screenshot scratch
+qa/
+.playwright-mcp/

@@ -54,6 +54,10 @@ export interface PlaybackContextValue {
 
 const Ctx = createContext<PlaybackContextValue | null>(null);
 
+/** Max consecutive fatal-error recoveries before we give up and
+ *  surface the failure. ~3 s per retry × 5 = 15 s total best effort. */
+const MAX_FATAL_RECOVERY_ATTEMPTS = 5;
+
 interface PlaybackProviderProps {
   children: ReactNode;
 }
@@ -66,6 +70,10 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
   // Bumped on every stream switch so a stale play() rejection from a
   // torn-down stream can't overwrite the new stream's state.
   const streamVersionRef = useRef(0);
+  // Bounded fatal-error retries — without this an unrecoverable
+  // MEDIA_ERROR could spin recoverMediaError → startLoad → MEDIA_ERROR
+  // forever. Reset on a clean "playing" event below.
+  const recoveryAttemptsRef = useRef(0);
 
   const [playingStageId, setPlayingStageId] = useState<string | null>(null);
   const [state, setState] = useState<PlaybackState>("idle");
@@ -129,8 +137,12 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
 
       // Different stage (or first play) → switch streams. Bump the
       // version NOW so any in-flight rejection from the old stream
-      // can detect it's stale.
+      // can detect it's stale. Reset the recovery counter — each
+      // new stream starts with a fresh MAX_FATAL_RECOVERY_ATTEMPTS
+      // budget; otherwise a stage that consumed N retries would
+      // leave the next stage with only (5 - N) before going dead.
       streamVersionRef.current += 1;
+      recoveryAttemptsRef.current = 0;
       const versionAtCall = streamVersionRef.current;
 
       teardown();
@@ -152,23 +164,78 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
 
       if (HlsCtor.isSupported()) {
         const hls = new HlsCtor({
-          backBufferLength: 30,
-          maxBufferLength: 30,
-          liveSyncDuration: 6,
+          // Resilience tuning — listener feedback: "audio sometimes
+          // stops to load, I don't want the audio to stop." The
+          // engine emits 3 s segments with a 6-segment rolling
+          // window (18 s on disk). Default hls.js settings are
+          // tuned for low-latency live, which is sensitive to
+          // network blips. We trade ~3-5 s of extra latency for
+          // playback that keeps going through hiccups.
+          backBufferLength: 60,
+          maxBufferLength: 60, // hold up to 60 s buffered
+          maxMaxBufferLength: 600, // can grow further if needed
+          // Stay further back from the live edge — gives more cushion
+          // before a network stall starves the player.
+          liveSyncDurationCount: 3,
+          // Re-arm fragment loads more aggressively before giving up.
+          fragLoadingTimeOut: 20_000,
+          fragLoadingMaxRetry: 8,
+          fragLoadingRetryDelay: 500,
+          manifestLoadingTimeOut: 12_000,
+          manifestLoadingMaxRetry: 6,
+          levelLoadingTimeOut: 12_000,
+          levelLoadingMaxRetry: 6,
+          // hls.js's built-in stall-handling: nudge the playhead
+          // forward when the buffer underruns instead of pausing.
+          // Default is 3; we raise to 8 because our 60 s buffer
+          // means a transient network blip is much more likely to
+          // resolve than to cascade into a permanent stall — we'd
+          // rather nudge a few extra times than throw a
+          // BUFFER_STALLED_ERROR. Trade-off accepted per the
+          // listener-feedback resilience pass.
+          nudgeMaxRetry: 8,
+          nudgeOffset: 0.2,
         });
         hlsRef.current = hls;
         hls.loadSource(streamUrl);
         hls.attachMedia(audio);
         hls.on(HlsCtor.Events.ERROR, (_event, data) => {
           if (versionAtCall !== streamVersionRef.current) return;
+
+          // Non-fatal errors — log, keep going. hls.js handles them
+          // internally (segment retries, playhead nudges).
           if (!data.fatal) return;
+
+          // Bounded retry budget. Without this, an unrecoverable
+          // MEDIA_ERROR spins startLoad → MEDIA_ERROR → startLoad
+          // forever and the user sees "buffering…" with no audio
+          // and no escape. Five attempts × ~3 s each = 15 s of best
+          // effort before we surface a real error the listener can
+          // act on. Counter resets on the next "playing" event.
+          if (recoveryAttemptsRef.current >= MAX_FATAL_RECOVERY_ATTEMPTS) {
+            setState("error");
+            setError(`${data.type}: ${data.details} (recovery exhausted)`);
+            return;
+          }
+          recoveryAttemptsRef.current += 1;
+
+          // Fatal errors — try to recover before giving up. hls.js
+          // exposes startLoad() for network and recoverMediaError()
+          // for decoder issues. We chain MEDIA_ERROR → startLoad as
+          // a last-ditch retry before declaring permanent failure.
           switch (data.type) {
             case HlsCtor.ErrorTypes.NETWORK_ERROR:
               hls.startLoad();
               setState("loading");
               return;
             case HlsCtor.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
+              try {
+                hls.recoverMediaError();
+              } catch {
+                // recoverMediaError can throw on really bad state.
+                // Try a fresh load as a fallback.
+                hls.startLoad();
+              }
               setState("loading");
               return;
             default:
@@ -226,8 +293,16 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onPlay = () => setState("playing");
-    const onPlaying = () => setState("playing");
+    const onPlay = () => {
+      // Successful (re)start — clear the fatal-error retry budget
+      // so a future blip gets a fresh 5 attempts to recover.
+      recoveryAttemptsRef.current = 0;
+      setState("playing");
+    };
+    const onPlaying = () => {
+      recoveryAttemptsRef.current = 0;
+      setState("playing");
+    };
     const onPause = () => {
       setState((prev) => (prev === "playing" ? "paused" : prev));
     };

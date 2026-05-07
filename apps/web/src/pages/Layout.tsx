@@ -48,11 +48,16 @@ export function Layout() {
   const playerBarVisible = playingStageId !== null;
 
   return (
-    <div className="relative flex min-h-dvh flex-col md:flex-row">
+    <div className="relative flex h-dvh flex-col overflow-hidden md:flex-row">
       <MobileHeader onOpenDrawer={() => setDrawerOpen(true)} />
 
-      {/* Desktop sidebar */}
-      <div className="hidden md:flex md:flex-col">
+      {/* Desktop sidebar — full-viewport height + sticky so the footer
+          About button stays visible regardless of how tall the main
+          column gets. */}
+      <div
+        className="hidden md:sticky md:top-0 md:flex md:flex-col"
+        style={{ height: playerBarVisible ? "calc(100dvh - 6rem)" : "100dvh" }}
+      >
         <Sidebar
           activeStageId={activeStageId}
           onOpenInfo={() => setInfoOpen(true)}
@@ -70,12 +75,16 @@ export function Layout() {
       </MobileDrawer>
 
       <main
-        className="flex-1 overflow-hidden"
+        className="relative min-w-0 flex-1 overflow-hidden"
         style={{
-          paddingBottom: playerBarVisible ? "5.5rem" : undefined,
+          // Reserve space for the fixed persistent player bar so the
+          // page's own footer doesn't slide under it.
+          paddingBottom: playerBarVisible ? "6rem" : undefined,
         }}
       >
-        <Outlet />
+        <div className="h-full overflow-hidden">
+          <Outlet />
+        </div>
       </main>
 
       <PersistentPlayerBar />

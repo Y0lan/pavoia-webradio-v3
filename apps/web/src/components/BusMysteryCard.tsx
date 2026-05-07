@@ -6,8 +6,9 @@ interface BusMysteryCardProps {
 }
 
 /**
- * Bus easter egg, GAENDE-aesthetic. The Bus stage has no audio;
- * tapping it pops this dialog instead of routing to a 404.
+ * Bus easter egg, GAENDE-aesthetic. Direct port of v1's warmer
+ * "find it, hop on" copy — the Bus stage isn't on the wire, it's
+ * a real thing somewhere at the festival.
  */
 export function BusMysteryCard({ open, onClose }: BusMysteryCardProps) {
   return (
@@ -17,14 +18,17 @@ export function BusMysteryCard({ open, onClose }: BusMysteryCardProps) {
           // stage 11 · 🚌
         </p>
 
-        <h2 className="font-serif text-3xl italic text-[var(--color-text)]">
-          the bus
+        <div aria-hidden="true" className="text-7xl leading-none">🚌</div>
+
+        <h2 className="font-script text-3xl leading-tight text-[var(--color-text)] md:text-4xl">
+          some things must be
+          <br />
+          experienced in person
         </h2>
 
-        <p
-          className="border-l-2 border-[var(--color-amber)] mx-auto inline-block pl-4 text-left font-serif text-base italic leading-relaxed text-[var(--color-text-soft)]"
-        >
-          "Some things must be experienced in person."
+        <p className="mx-auto max-w-sm font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
+          The bus is out there, somewhere at Pavoia. Find it, hop on,
+          and let the music surprise you.
         </p>
 
         <button

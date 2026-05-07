@@ -21,29 +21,33 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
       className="flex h-full w-full flex-col bg-[var(--color-bg)] md:w-80 md:border-r md:border-[var(--color-card-border)]"
       aria-label="Stages"
     >
-      {/* Wordmark — JetBrains Mono GAENDE-style, with blinking caret */}
-      <header className="px-5 pb-3 pt-6 md:pb-5 md:pt-8">
-        <div className="flex items-baseline gap-3">
-          <span
-            className="animate-blink font-mono text-xs text-[var(--color-accent)]"
-            aria-hidden="true"
+      {/* Brand — v1's animated PAVOIA logo (the festival's actual
+          mark, hosted in public/). */}
+      <header className="px-5 pb-3 pt-5 md:pb-3 md:pt-6">
+        {/* PÂVOIA wordmark — bold sans, wide track, matching the
+            festival's typographic mark. The eye GIF is the home-page
+            hero, this sidebar header is text. */}
+        <h1
+          className="font-display text-[34px] font-normal tracking-[0.08em] text-[var(--color-text)] md:text-[36px]"
+          style={{ textShadow: "0 0 24px rgba(232,80,32,0.15)" }}
+        >
+          PÂVOIA
+        </h1>
+        <p className="mt-1 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
+          webradio · made by{" "}
+          <button
+            type="button"
+            onClick={onOpenInfo}
+            className="font-mono text-[var(--color-accent)] underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:underline"
+            aria-label="About gaende"
           >
-            ▸
-          </span>
-          <h1
-            className="font-mono text-2xl font-bold tracking-[0.2em] text-[var(--color-accent)]"
-            style={{ textShadow: "0 0 24px rgba(232,80,32,0.25)" }}
-          >
-            PAVOIA
-          </h1>
-        </div>
-        <p className="mt-1.5 pl-7 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-text-faint)]">
-          // gaende's webradio · 11 stages
+            gaende
+          </button>
         </p>
       </header>
 
-      <div className="px-5 pb-2 pt-3">
-        <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--color-text-faint)]">
+      <div className="px-5 pb-1 pt-2">
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-soft)]">
           <span className="h-px flex-1 bg-[var(--color-card-border-strong)]" />
           <span>stages</span>
           <span className="h-px flex-1 bg-[var(--color-card-border-strong)]" />
@@ -85,21 +89,23 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
         )}
       </nav>
 
-      {/* Footer — about button as a clear CTA, NOT buried */}
-      <footer className="border-t border-[var(--color-card-border)] px-3 py-3">
+      {/* Footer — About as a real CTA. Bordered button, accent prefix,
+          accent-tinted border on hover. The footer sticks at the
+          bottom of the column thanks to nav's flex-1 grow. */}
+      <footer className="shrink-0 border-t border-[var(--color-card-border)] px-3 py-3">
         <button
           type="button"
           onClick={onOpenInfo}
-          className="group flex w-full items-center gap-2 rounded-sm px-3 py-2 transition-colors hover:bg-[var(--color-bg-soft)]"
+          className="group flex w-full items-center gap-2.5 rounded-sm border border-[var(--color-card-border)] px-3 py-2.5 transition-colors hover:border-[var(--color-accent-dim)] hover:bg-[var(--color-bg-soft)] focus-visible:outline-none focus-visible:border-[var(--color-accent)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/40"
           aria-label="About Pavoia"
         >
           <span
-            className="font-mono text-[11px] text-[var(--color-accent-dim)]"
+            className="font-mono text-[13px] font-bold text-[var(--color-accent)] transition-colors"
             aria-hidden="true"
           >
             ?
           </span>
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-text-soft)] transition-colors group-hover:text-[var(--color-text)]">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-text-soft)] transition-colors group-hover:text-[var(--color-text)]">
             about · readme
           </span>
         </button>

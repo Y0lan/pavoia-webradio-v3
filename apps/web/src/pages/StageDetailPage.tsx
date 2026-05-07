@@ -3,6 +3,7 @@ import { useParams } from "@tanstack/react-router";
 import { useStages } from "../api/stages.ts";
 import { useStageNow } from "../api/now.ts";
 import { NowPlayingHero } from "../components/NowPlayingHero.tsx";
+import { StageAtmosphere } from "../components/StageAtmosphere.tsx";
 
 /**
  * Per-stage takeover. The whole page is the now-playing experience
@@ -29,7 +30,7 @@ export function StageDetailPage() {
   if (stagesError) {
     return (
       <section className="px-8 py-12">
-        <h2 className="font-serif text-2xl italic text-[var(--color-text)]">
+        <h2 className="text-2xl font-medium text-[var(--color-text)]">
           engine unreachable
         </h2>
         <p className="mt-2 font-sans text-sm text-[var(--color-text-soft)]">
@@ -45,7 +46,7 @@ export function StageDetailPage() {
   if (!stage || stage.disabled) {
     return (
       <section className="px-8 py-12">
-        <h2 className="font-serif text-2xl italic text-[var(--color-text)]">
+        <h2 className="text-2xl font-medium text-[var(--color-text)]">
           {stage?.disabled ? "stage unavailable" : "stage not found"}
         </h2>
         <p className="mt-2 font-sans text-sm text-[var(--color-text-soft)]">
@@ -64,26 +65,13 @@ export function StageDetailPage() {
   }
 
   return (
-    <section className="relative min-h-dvh overflow-hidden">
-      {/* Atmosphere — per-stage gradient + grain. Each stage is its
-          own room; the whole page changes mood. */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `
-            radial-gradient(ellipse 100% 70% at 25% 15%, ${stage.gradient.from}b3, transparent 55%),
-            radial-gradient(ellipse 80% 90% at 80% 90%, ${stage.gradient.via}99, transparent 50%),
-            ${stage.gradient.to}
-          `,
-        }}
-      />
-      {/* Vignette pulls focus to the center */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse at center, transparent 30%, rgba(8,5,5,0.65) 100%)",
-        }}
+    <section className="relative h-full overflow-hidden">
+      {/* Atmospheric backdrop — blurred cover (when available) +
+          breathing gradient orbs in the stage's palette + vignette.
+          Drives the page's mood; foreground content sits above it. */}
+      <StageAtmosphere
+        stage={stage}
+        plexCoverUrl={now?.track?.coverUrl}
       />
 
       <div className="relative z-10">

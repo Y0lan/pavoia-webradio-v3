@@ -1,19 +1,18 @@
 import { useStages } from "../api/stages.ts";
 
 /**
- * Landing screen — typographic poster with the GAENDE wordmark
- * treatment. Slow ambient gradient drift in the background, scanlines
- * + grain layered on top by the body. The mood the listener walks
- * into before they pick a stage.
+ * Landing screen — the eye as the festival's identity, dropped on
+ * a slow drifting backdrop. Mood the listener walks into before
+ * they pick a stage.
  */
 export function HomePage() {
   const { data: stages, isLoading, isError } = useStages();
   const audioStages = (stages ?? []).filter((s) => !s.disabled);
 
   return (
-    <section className="relative min-h-dvh overflow-hidden">
-      {/* Slow drifting mood backdrop — uses the union of stage palettes
-          so the home screen feels like the festival's whole night. */}
+    <section className="relative h-full overflow-hidden">
+      {/* Slow drifting mood backdrop — union of stage palettes so the
+          home screen feels like the festival's whole night. */}
       <div
         className="absolute inset-0 opacity-40 animate-mood-shift"
         style={{
@@ -31,58 +30,60 @@ export function HomePage() {
         }}
       />
 
-      <div className="relative z-10 flex min-h-dvh flex-col px-6 py-10 md:px-12 md:py-16">
-        {/* Top metadata strip */}
-        <header className="font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
-          // pavoia · webradio · est. 2026 · curated by{" "}
+      <div className="relative z-10 flex h-full flex-col items-center px-6 py-5 md:px-12 md:py-8">
+        {/* Tiny caption strip — not the hero anymore, just signage */}
+        <p className="self-start font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
+          <span className="text-[var(--color-accent-dim)]">//</span>{" "}
+          pâvoia · webradio · est. 2026 · curated by{" "}
           <span className="text-[var(--color-accent)]">gaende</span>
-        </header>
+        </p>
 
-        {/* Hero — eleven stages, one night */}
-        <div className="mt-auto">
-          <h1
-            className="font-mono font-bold leading-[0.85] tracking-[0.05em] text-[var(--color-accent)]"
+        {/* The eye — BIG, the festival's mark. Wrapped in a slowly
+            pulsing radial glow so it looks alive even before the
+            GIF blinks. */}
+        <div className="relative my-auto flex flex-col items-center">
+          <div
+            className="absolute inset-0 -z-10 animate-glow-pulse"
             style={{
-              fontSize: "clamp(3rem, 13vw, 10rem)",
-              textShadow: "0 0 60px rgba(232,80,32,0.25)",
+              background:
+                "radial-gradient(circle at center, rgba(232,80,32,0.22) 0%, rgba(232,80,32,0.08) 30%, transparent 65%)",
+              transform: "scale(1.6)",
             }}
-          >
-            PAVOIA
-          </h1>
+            aria-hidden="true"
+          />
+          <img
+            src="/pavoia-logo.gif"
+            alt="Pâvoia"
+            className="h-[clamp(180px,38vh,360px)] w-auto"
+            style={{
+              filter:
+                "drop-shadow(0 0 40px rgba(232,80,32,0.35)) drop-shadow(0 0 80px rgba(232,80,32,0.18))",
+            }}
+          />
 
-          <p
-            className="mt-6 max-w-xl font-serif text-2xl italic leading-snug text-[var(--color-text)] md:text-3xl"
-          >
-            eleven stages,
-            <br />
-            one night,
-            <br />
+          <p className="mt-5 text-balance text-center font-script text-3xl leading-snug text-[var(--color-text)] md:text-4xl">
+            eleven stages, one night,{" "}
             <span className="text-[var(--color-text-soft)]">
               picked apart from the algorithm.
             </span>
           </p>
+        </div>
 
-          <p className="mt-8 max-w-md font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
-            A curator's collection played as radio — full albums, hidden
-            B-sides, forgotten 90s vinyl, daily diggings. Tune into a
-            stage, the rest of the night carries on around you.
+        {/* CTA strip — bottom of viewport */}
+        <div className="flex items-center gap-3">
+          <span
+            className="animate-blink font-mono text-sm text-[var(--color-accent)]"
+            aria-hidden="true"
+          >
+            ▸
+          </span>
+          <p className="font-mono text-[12px] uppercase tracking-[0.18em] text-[var(--color-text-soft)]">
+            {isLoading
+              ? "loading stages…"
+              : isError
+                ? "engine offline · check the sidebar"
+                : `pick a stage — ${audioStages.length} live`}
           </p>
-
-          <div className="mt-10 flex items-center gap-3">
-            <span
-              className="animate-blink font-mono text-sm text-[var(--color-accent)]"
-              aria-hidden="true"
-            >
-              ▸
-            </span>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]">
-              {isLoading
-                ? "loading stages…"
-                : isError
-                  ? "engine offline · check the sidebar"
-                  : `pick a stage — ${audioStages.length} live`}
-            </p>
-          </div>
         </div>
       </div>
     </section>

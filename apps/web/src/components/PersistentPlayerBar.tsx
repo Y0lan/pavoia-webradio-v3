@@ -88,7 +88,7 @@ export function PersistentPlayerBar() {
           <div className="truncate font-sans text-sm font-medium text-[var(--color-text)]">
             {now?.track?.title ?? (isLoading ? "Buffering…" : "—")}
           </div>
-          <div className="truncate font-serif text-xs italic text-[var(--color-text-soft)]">
+          <div className="truncate text-xs italic text-[var(--color-text-soft)]">
             {now?.track?.artist ?? (isLoading ? "" : "—")}
           </div>
         </div>
@@ -122,7 +122,7 @@ export function PersistentPlayerBar() {
               <rect x="14" y="4" width="4" height="16" rx="1" />
             </svg>
           ) : (
-            <svg viewBox="0 0 24 24" width="14" height="14" fill={accent} aria-hidden="true" className="ml-0.5">
+            <svg viewBox="2 2 20 20" width="14" height="14" fill={accent} aria-hidden="true">
               <path d="M8 5.14v13.72L19 12 8 5.14z" />
             </svg>
           )}

@@ -47,7 +47,7 @@ export function StageItem({
       <button
         type="button"
         onClick={onOpenBus}
-        className="group relative flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-[var(--color-bg-soft)]"
+        className="group relative flex w-full items-center gap-3 px-5 py-2 text-left transition-colors hover:bg-[var(--color-bg-soft)]"
       >
         <span className="font-mono text-[10px] tabular-nums text-[var(--color-text-faint)]">
           {number}
@@ -58,21 +58,12 @@ export function StageItem({
               //
             </span>
             <span
-              className="truncate font-serif text-base italic text-[var(--color-text-soft)]"
+              className="truncate text-[15px] italic text-[var(--color-text-soft)]"
             >
               {stage.fallbackTitle.toLowerCase()}
             </span>
           </div>
-          <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
-            no audio · ui only
           </div>
-        </div>
-        <span
-          className="text-lg opacity-50 transition-opacity group-hover:opacity-90"
-          aria-hidden="true"
-        >
-          {stage.icon}
-        </span>
       </button>
     );
   }
@@ -82,7 +73,7 @@ export function StageItem({
       to="/stage/$stageId"
       params={{ stageId: stage.id }}
       aria-current={isActive ? "page" : undefined}
-      className="group relative flex w-full items-center gap-3 px-5 py-3 transition-colors hover:bg-[var(--color-bg-soft)]"
+      className="group relative flex w-full items-center gap-3 px-5 py-2 transition-colors hover:bg-[var(--color-bg-soft)]"
     >
       {/* Active-route stripe — thin vertical bar, accent color */}
       {isActive && (
@@ -119,7 +110,7 @@ export function StageItem({
             $
           </span>
           <span
-            className="truncate font-sans text-base font-medium leading-tight transition-colors"
+            className="truncate font-sans text-[15px] font-medium leading-tight transition-colors"
             style={{
               color: isActive
                 ? "var(--color-text)"
@@ -130,9 +121,6 @@ export function StageItem({
           >
             {stage.fallbackTitle.toLowerCase()}
           </span>
-        </div>
-        <div className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
-          {stage.fallbackDescription.split(/[.,]/)[0]}
         </div>
       </div>
 
@@ -149,15 +137,6 @@ export function StageItem({
         />
       ) : null}
 
-      <span
-        className="text-lg transition-all duration-300"
-        aria-hidden="true"
-        style={{
-          opacity: isActive || isLoadedHere ? 1 : 0.55,
-        }}
-      >
-        {stage.icon}
-      </span>
     </Link>
   );
 }

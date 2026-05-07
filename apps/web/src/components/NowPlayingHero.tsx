@@ -6,28 +6,44 @@ import { useArtistDrawer } from "./ArtistDrawer.tsx";
 import { CoverImage } from "./CoverImage.tsx";
 import { EqualizerBars } from "./EqualizerBars.tsx";
 
+/* Estimated HLS live latency for our 3-second-segment / 6-segment-window
+   engine setup with hls.js's `liveSyncDurationCount: 3`. The bar
+   subtracts this when this stage is the actively-playing one so the
+   visual progress matches what the listener actually hears, instead
+   of the engine's "now"-cursor that's ~10 s ahead of the speaker. */
+const HLS_AUDIO_LATENCY_SEC = 10;
+
 /* Local TrackProgress — small enough to inline. Updates every second
    from `startedAt`, clamps to [0, durationSec], renders a thin accent
-   bar with mono timestamps below. */
+   bar with mono timestamps below.
+
+   `audioOffsetSec` accounts for the gap between when the engine puts
+   a segment on the wire and when the listener actually hears it
+   (HLS live = ~3 segments * 3 s + fetch latency ≈ 10 s). When this
+   stage is the active one in the player, we show the LISTENER's
+   position, not the engine's — otherwise the progress bar is ~10 s
+   ahead of what they're hearing. */
 function TrackProgress({
   startedAt,
   durationSec,
   accent,
+  audioOffsetSec,
 }: {
   startedAt: number;
   durationSec: number;
   accent: string;
+  audioOffsetSec: number;
 }) {
   const [elapsedSec, setElapsedSec] = useState(() =>
-    computeElapsed(startedAt, durationSec),
+    computeElapsed(startedAt, durationSec, audioOffsetSec),
   );
   useEffect(() => {
-    setElapsedSec(computeElapsed(startedAt, durationSec));
+    setElapsedSec(computeElapsed(startedAt, durationSec, audioOffsetSec));
     const id = setInterval(() => {
-      setElapsedSec(computeElapsed(startedAt, durationSec));
+      setElapsedSec(computeElapsed(startedAt, durationSec, audioOffsetSec));
     }, 1_000);
     return () => clearInterval(id);
-  }, [startedAt, durationSec]);
+  }, [startedAt, durationSec, audioOffsetSec]);
 
   const pct =
     durationSec > 0
@@ -57,8 +73,12 @@ function TrackProgress({
   );
 }
 
-function computeElapsed(startedAt: number, durationSec: number): number {
-  const sec = Math.max(0, (Date.now() - startedAt) / 1000);
+function computeElapsed(
+  startedAt: number,
+  durationSec: number,
+  audioOffsetSec: number,
+): number {
+  const sec = Math.max(0, (Date.now() - startedAt) / 1000 - audioOffsetSec);
   return Math.min(durationSec, sec);
 }
 
@@ -107,9 +127,9 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
   };
 
   return (
-    <div className="flex flex-col items-center px-6 pb-32 pt-6 md:px-8 md:pb-40 md:pt-10">
+    <div className="flex h-full flex-col items-center overflow-hidden px-6 py-2 md:px-8 md:py-4">
       {/* Stage label (mono, prefixed with //) */}
-      <div className="mb-4 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
+      <div className="mb-2 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
         <span
           className={`size-1.5 rounded-full ${
             isPlaying ? "animate-blink" : ""
@@ -126,71 +146,85 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
 
       {/* Stage title */}
       <h1
-        className="font-serif text-3xl italic leading-tight text-[var(--color-text)] md:text-4xl"
+        className="font-script text-5xl font-semibold leading-none text-[var(--color-text)] md:text-6xl"
       >
         {stage.fallbackTitle.toLowerCase()}
       </h1>
 
-      {/* Cover art — Plex thumb when available; vinyl gradient when
-          missing OR when the proxy returns 404/502/etc. */}
-      <div className="relative my-10 w-full max-w-sm md:my-14 md:max-w-md">
-        <CoverImage
-          plexCoverUrl={track?.coverUrl}
-          className="aspect-square w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
-          loading="eager"
-          style={{
-            backgroundImage: `
-              radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
-              radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
-              ${stage.gradient.to}
-            `,
-          }}
-          fallback={
-            // Vinyl-record concentric circles, when no Plex thumb is
-            // available or the image load failed.
-            <div className="relative size-full">
-              <div
-                className="absolute inset-[14%] rounded-full opacity-30"
-                style={{
-                  background: `repeating-radial-gradient(circle at center, transparent 0, transparent 4px, rgba(0,0,0,0.4) 4px, rgba(0,0,0,0.4) 5px)`,
-                }}
-              />
-              <div
-                className="absolute inset-[42%] rounded-full"
-                style={{ backgroundColor: stage.accent, opacity: 0.85 }}
-              />
-              <div className="absolute inset-[48%] rounded-full bg-black" />
-            </div>
-          }
-        />
+      {/* Stage description — line-clamped to 2 so a long description
+          can't push the play button past the persistent bar. */}
+      <p className="mt-1 line-clamp-2 max-w-md text-balance text-center font-sans text-xs leading-relaxed text-[var(--color-text-soft)] md:text-sm">
+        {stage.fallbackDescription}
+      </p>
 
-        {/* EQ bars overlaid on the bottom-right corner of the cover when
-            playing — extra visual signal at arm's length. */}
-        {isPlaying ? (
-          <div className="absolute bottom-3 right-3 rounded-sm bg-black/60 px-2 py-1.5 backdrop-blur-sm">
-            <EqualizerBars color={stage.accent} size="sm" />
-          </div>
-        ) : null}
+      {/* Cover art — flex-1 absorbs the remaining vertical space and
+          centers the cover in it. The cover itself is sized via a
+          viewport-aware max-width so it scales down on shorter
+          screens (dvh aware) and never overflows wide containers. */}
+      <div className="my-1.5 flex w-full flex-1 items-center justify-center md:my-3">
+        {/* Inner wrapper sized to the cover so the EQ overlay anchors
+            to the cover's bottom-right corner instead of the entire
+            outer flex container (which is full viewport-width). */}
+        <div
+          className="relative aspect-square"
+          style={{ width: "min(60vw, 38dvh, max(0px, calc(100dvh - 540px)))" }}
+        >
+          <CoverImage
+            plexCoverUrl={track?.coverUrl}
+            className="size-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
+            loading="eager"
+            style={{
+              backgroundImage: `
+                radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
+                radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
+                ${stage.gradient.to}
+              `,
+            }}
+            fallback={
+              <div className="relative size-full">
+                <div
+                  className="absolute inset-[14%] rounded-full opacity-30"
+                  style={{
+                    background: `repeating-radial-gradient(circle at center, transparent 0, transparent 4px, rgba(0,0,0,0.4) 4px, rgba(0,0,0,0.4) 5px)`,
+                  }}
+                />
+                <div
+                  className="absolute inset-[42%] rounded-full"
+                  style={{ backgroundColor: stage.accent, opacity: 0.85 }}
+                />
+                <div className="absolute inset-[48%] rounded-full bg-black" />
+              </div>
+            }
+          />
+
+          {/* EQ bars overlaid on the bottom-right corner of the cover
+              when playing. */}
+          {isPlaying ? (
+            <div className="absolute bottom-3 right-3 rounded-sm bg-black/60 px-2 py-1.5 backdrop-blur-sm">
+              <EqualizerBars color={stage.accent} size="sm" />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {/* Track metadata — center-aligned, scaled for arm's length */}
       <div className="w-full max-w-md text-center">
         {track ? (
           <>
-            <h2 className="line-clamp-2 font-sans text-2xl font-semibold leading-tight text-[var(--color-text)] md:text-3xl">
+            <h2 className="line-clamp-2 font-sans text-xl font-semibold leading-tight text-[var(--color-text)] md:text-3xl">
               {track.title}
             </h2>
             {typeof track.artistRatingKey === "number" ? (
               <button
                 type="button"
                 onClick={() => openArtist(track.artistRatingKey!)}
-                className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] underline-offset-4 transition-colors hover:text-[var(--color-text)] hover:underline md:text-xl"
+                className="mt-2 truncate text-lg italic text-[var(--color-text-soft)] underline-offset-4 transition-colors hover:text-[var(--color-text)] hover:underline md:text-xl"
                 aria-label={`Open ${track.artist} details`}
               >
                 {track.artist}
               </button>
             ) : (
-              <p className="mt-2 truncate font-serif text-lg italic text-[var(--color-text-soft)] md:text-xl">
+              <p className="mt-2 truncate text-lg italic text-[var(--color-text-soft)] md:text-xl">
                 {track.artist}
               </p>
             )}
@@ -204,26 +238,33 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
             <h2 className="font-sans text-2xl font-semibold text-[var(--color-text)] md:text-3xl">
               {placeholderTitle(status)}
             </h2>
-            <p className="mt-2 font-serif text-base italic text-[var(--color-text-soft)]">
+            <p className="mt-2 text-base italic text-[var(--color-text-soft)]">
               {placeholderSubtitle(status, stage)}
             </p>
           </>
         )}
       </div>
 
-      {/* Progress bar — only when we have a real track */}
+      {/* Progress bar — only when we have a real track. When this
+          stage is the actively playing one, apply HLS_AUDIO_LATENCY_SEC
+          so the bar reflects what the listener is HEARING, not what
+          the engine just emitted. When the stage is selected but not
+          playing, show the engine's true progress (no offset). */}
       {track && startedAt !== null && status === "playing" ? (
-        <div className="mt-10 w-full max-w-md">
+        <div className="mt-3 w-full max-w-md">
           <TrackProgress
             startedAt={startedAt}
             durationSec={track.durationSec}
             accent={stage.accent}
+            audioOffsetSec={isThisStageActive ? HLS_AUDIO_LATENCY_SEC : 0}
           />
         </div>
       ) : null}
 
-      {/* Play/pause — large, accent-ringed, the festival hero button */}
-      <div className="mt-10">
+      {/* Play/pause — large, accent-ringed, the festival hero button.
+          Wrapper is items-center so button + caption both sit at the
+          same horizontal center regardless of caption length. */}
+      <div className="mt-3 flex flex-col items-center">
         <button
           type="button"
           onClick={onTogglePlay}
@@ -262,13 +303,16 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
               <rect x="14" y="4" width="4" height="16" rx="1" />
             </svg>
           ) : (
+            // Play triangle is right-pointing, so its visual mass is
+            // already biased to the left of the SVG canvas. Use a
+            // viewBox that places the triangle's centroid at the SVG
+            // center — no margin offset needed, button stays centered.
             <svg
-              viewBox="0 0 24 24"
+              viewBox="2 2 20 20"
               width="36"
               height="36"
               fill={stage.accent}
               aria-hidden="true"
-              className="ml-1.5"
             >
               <path d="M8 5.14v13.72L19 12 8 5.14z" />
             </svg>
@@ -277,7 +321,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
 
         {/* Status caption under the button */}
         <p
-          className="mt-4 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]"
+          className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]"
           aria-live="polite"
         >
           {captionForState(displayState, isThisStageActive)}

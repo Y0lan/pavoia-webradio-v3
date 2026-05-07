@@ -77,6 +77,8 @@ function mimeFor(filename: string): string {
       return "image/jpeg";
     case ".webp":
       return "image/webp";
+    case ".gif":
+      return "image/gif";
     case ".ico":
       return "image/x-icon";
     case ".woff":
@@ -189,9 +191,26 @@ export function createWebStaticHandler(opts: WebStaticOptions): Hono {
   });
 
   // SPA-fallback catchall. Any GET that wasn't /api/*, /hls/*, or
-  // /assets/* lands here. We hand back index.html and let TanStack
-  // Router resolve the route in the browser.
+  // /assets/* lands here. First we try to serve a real file at the
+  // requested path (Vite copies `public/*` to dist root, so things
+  // like /pavoia-logo.gif live here, not under /assets/). If the
+  // path doesn't resolve to a file, we hand back index.html and let
+  // TanStack Router resolve the route in the browser.
   app.get("*", async (c) => {
+    const url = new URL(c.req.url);
+    const pathname = url.pathname;
+    if (pathname !== "/" && pathname !== "/" + indexFile) {
+      const rel = pathname.slice(1);
+      const resolved = await safeResolve(distDir, rel);
+      if (resolved !== null) {
+        c.header("content-type", mimeFor(resolved));
+        c.header("cache-control", "no-cache");
+        const stream = Readable.toWeb(
+          createReadStream(resolved),
+        ) as ReadableStream<Uint8Array>;
+        return c.body(stream);
+      }
+    }
     const html = await serveIndexHtml(distDir, indexFile);
     if (html === null) {
       // dist/index.html is missing — operator misconfigured the

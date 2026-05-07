@@ -54,7 +54,10 @@ export function Layout() {
       {/* Desktop sidebar — full-viewport height + sticky so the footer
           About button stays visible regardless of how tall the main
           column gets. */}
-      <div className="hidden md:sticky md:top-0 md:flex md:h-dvh md:flex-col">
+      <div
+        className="hidden md:sticky md:top-0 md:flex md:flex-col"
+        style={{ height: playerBarVisible ? "calc(100dvh - 6rem)" : "100dvh" }}
+      >
         <Sidebar
           activeStageId={activeStageId}
           onOpenInfo={() => setInfoOpen(true)}
@@ -76,7 +79,7 @@ export function Layout() {
         style={{
           // Reserve space for the fixed persistent player bar so the
           // page's own footer doesn't slide under it.
-          paddingBottom: playerBarVisible ? "5.5rem" : undefined,
+          paddingBottom: playerBarVisible ? "6rem" : undefined,
         }}
       >
         <div className="h-full overflow-hidden">

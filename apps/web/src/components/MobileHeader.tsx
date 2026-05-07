@@ -9,12 +9,12 @@ interface MobileHeaderProps {
 export function MobileHeader({ onOpenDrawer }: MobileHeaderProps) {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--color-card-border)] bg-[var(--color-bg)]/95 px-4 py-3 backdrop-blur md:hidden">
-      <img
-        src="/pavoia-logo.gif"
-        alt="Pavoia"
-        className="h-8 w-auto"
-        style={{ filter: "drop-shadow(0 0 10px rgba(232,80,32,0.2))" }}
-      />
+      <h1
+        className="font-sans text-xl font-extrabold tracking-[0.08em] text-[var(--color-text)]"
+        style={{ textShadow: "0 0 16px rgba(232,80,32,0.15)" }}
+      >
+        PÂVOIA
+      </h1>
       <button
         type="button"
         onClick={onOpenDrawer}

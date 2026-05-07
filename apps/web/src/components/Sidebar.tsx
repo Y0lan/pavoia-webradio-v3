@@ -23,18 +23,18 @@ export function Sidebar({ activeStageId, onOpenInfo, onOpenBus }: SidebarProps) 
     >
       {/* Brand — v1's animated PAVOIA logo (the festival's actual
           mark, hosted in public/). */}
-      <header className="px-5 pb-3 pt-4 md:pb-3 md:pt-5">
-        <img
-          src="/pavoia-logo.gif"
-          alt="Pavoia"
-          className="h-10 w-auto md:h-12"
-          style={{
-            filter: "drop-shadow(0 0 14px rgba(232,80,32,0.18))",
-          }}
-        />
-        <p className="mt-2 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
-          <span className="text-[var(--color-accent-dim)]">//</span>{" "}
-          PAVOIA webradio · made by{" "}
+      <header className="px-5 pb-3 pt-5 md:pb-3 md:pt-6">
+        {/* PÂVOIA wordmark — bold sans, wide track, matching the
+            festival's typographic mark. The eye GIF is the home-page
+            hero, this sidebar header is text. */}
+        <h1
+          className="font-sans text-3xl font-extrabold tracking-[0.08em] text-[var(--color-text)] md:text-[28px]"
+          style={{ textShadow: "0 0 24px rgba(232,80,32,0.15)" }}
+        >
+          PÂVOIA
+        </h1>
+        <p className="mt-1 font-mono text-[11px] tracking-[0.06em] text-[var(--color-text-soft)]">
+          webradio · made by{" "}
           <button
             type="button"
             onClick={onOpenInfo}

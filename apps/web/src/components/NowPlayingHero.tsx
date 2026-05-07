@@ -127,7 +127,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
   };
 
   return (
-    <div className="flex h-full flex-col items-center overflow-hidden px-6 py-3 md:px-8 md:py-5">
+    <div className="flex h-full flex-col items-center overflow-hidden px-6 py-2 md:px-8 md:py-4">
       {/* Stage label (mono, prefixed with //) */}
       <div className="mb-2 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--color-text-faint)]">
         <span
@@ -154,7 +154,7 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
       {/* Stage description — full text, not truncated. Sidebar shows
           a one-clause preview; the page is where the room's vibe
           gets to breathe. */}
-      <p className="mt-2 max-w-md text-balance text-center font-sans text-sm leading-relaxed text-[var(--color-text-soft)]">
+      <p className="mt-1 line-clamp-2 max-w-md text-balance text-center font-sans text-xs leading-relaxed text-[var(--color-text-soft)] md:text-sm">
         {stage.fallbackDescription}
       </p>
 
@@ -162,57 +162,57 @@ export function NowPlayingHero({ stage, payload, streamUrl }: NowPlayingHeroProp
           centers the cover in it. The cover itself is sized via a
           viewport-aware max-width so it scales down on shorter
           screens (dvh aware) and never overflows wide containers. */}
-      <div className="relative my-2 flex w-full flex-1 items-center justify-center md:my-3">
-        <CoverImage
-          plexCoverUrl={track?.coverUrl}
-          className="aspect-square w-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
-          loading="eager"
-          style={{
-            // Cap to whichever is smaller: 80% of viewport width, or
-            // the vertical room left after the title block + meta +
-            // play button + persistent bar slack.
-            maxWidth: "min(80vw, calc(100dvh - 420px))",
-            // Vinyl gradient as the fallback backdrop (visible only
-            // when the cover img isn't loaded yet / failed).
-            backgroundImage: `
-              radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
-              radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
-              ${stage.gradient.to}
-            `,
-          }}
-          fallback={
-            // Vinyl-record concentric circles, when no Plex thumb is
-            // available or the image load failed.
-            <div className="relative size-full">
-              <div
-                className="absolute inset-[14%] rounded-full opacity-30"
-                style={{
-                  background: `repeating-radial-gradient(circle at center, transparent 0, transparent 4px, rgba(0,0,0,0.4) 4px, rgba(0,0,0,0.4) 5px)`,
-                }}
-              />
-              <div
-                className="absolute inset-[42%] rounded-full"
-                style={{ backgroundColor: stage.accent, opacity: 0.85 }}
-              />
-              <div className="absolute inset-[48%] rounded-full bg-black" />
-            </div>
-          }
-        />
+      <div className="my-1.5 flex w-full flex-1 items-center justify-center md:my-3">
+        {/* Inner wrapper sized to the cover so the EQ overlay anchors
+            to the cover's bottom-right corner instead of the entire
+            outer flex container (which is full viewport-width). */}
+        <div
+          className="relative aspect-square"
+          style={{ width: "min(60vw, 38vh, calc(100dvh - 540px))" }}
+        >
+          <CoverImage
+            plexCoverUrl={track?.coverUrl}
+            className="size-full rounded-sm shadow-2xl ring-1 ring-[var(--color-card-border-strong)]"
+            loading="eager"
+            style={{
+              backgroundImage: `
+                radial-gradient(circle at 30% 30%, ${stage.gradient.from}, transparent 60%),
+                radial-gradient(circle at 70% 70%, ${stage.gradient.via}, transparent 65%),
+                ${stage.gradient.to}
+              `,
+            }}
+            fallback={
+              <div className="relative size-full">
+                <div
+                  className="absolute inset-[14%] rounded-full opacity-30"
+                  style={{
+                    background: `repeating-radial-gradient(circle at center, transparent 0, transparent 4px, rgba(0,0,0,0.4) 4px, rgba(0,0,0,0.4) 5px)`,
+                  }}
+                />
+                <div
+                  className="absolute inset-[42%] rounded-full"
+                  style={{ backgroundColor: stage.accent, opacity: 0.85 }}
+                />
+                <div className="absolute inset-[48%] rounded-full bg-black" />
+              </div>
+            }
+          />
 
-        {/* EQ bars overlaid on the bottom-right corner of the cover when
-            playing — extra visual signal at arm's length. */}
-        {isPlaying ? (
-          <div className="absolute bottom-3 right-3 rounded-sm bg-black/60 px-2 py-1.5 backdrop-blur-sm">
-            <EqualizerBars color={stage.accent} size="sm" />
-          </div>
-        ) : null}
+          {/* EQ bars overlaid on the bottom-right corner of the cover
+              when playing. */}
+          {isPlaying ? (
+            <div className="absolute bottom-3 right-3 rounded-sm bg-black/60 px-2 py-1.5 backdrop-blur-sm">
+              <EqualizerBars color={stage.accent} size="sm" />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {/* Track metadata — center-aligned, scaled for arm's length */}
       <div className="w-full max-w-md text-center">
         {track ? (
           <>
-            <h2 className="line-clamp-2 font-sans text-2xl font-semibold leading-tight text-[var(--color-text)] md:text-3xl">
+            <h2 className="line-clamp-2 font-sans text-xl font-semibold leading-tight text-[var(--color-text)] md:text-3xl">
               {track.title}
             </h2>
             {typeof track.artistRatingKey === "number" ? (

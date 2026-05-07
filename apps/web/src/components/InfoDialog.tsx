@@ -25,10 +25,6 @@ export function InfoDialog({ open, onClose }: InfoDialogProps) {
               filter: "drop-shadow(0 0 18px rgba(232,80,32,0.25))",
             }}
           />
-          <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-text-soft)]">
-            <span className="text-[var(--color-accent-dim)]">//</span>{" "}
-            pavoia webradio · v3
-          </p>
         </div>
 
         {/* Curator's note — single tight paragraph */}
@@ -52,8 +48,8 @@ export function InfoDialog({ open, onClose }: InfoDialogProps) {
           Pâvoia. Find it, hop on, let the music surprise you.
         </p>
 
-        {/* Socials — Pâvoia + the curator, two rows of icon buttons. */}
-        <div className="space-y-2">
+        {/* Socials — pâvoia + the curator, side-by-side groups */}
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-faint)]">
               <span className="text-[var(--color-accent-dim)]">//</span>{" "}

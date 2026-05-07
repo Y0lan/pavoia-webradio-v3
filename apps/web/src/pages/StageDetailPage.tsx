@@ -65,7 +65,7 @@ export function StageDetailPage() {
   }
 
   return (
-    <section className="relative min-h-dvh overflow-hidden">
+    <section className="relative h-full overflow-y-auto">
       {/* Atmospheric backdrop — blurred cover (when available) +
           breathing gradient orbs in the stage's palette + vignette.
           Drives the page's mood; foreground content sits above it. */}

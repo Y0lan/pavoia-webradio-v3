@@ -79,7 +79,7 @@ export function Layout() {
           paddingBottom: playerBarVisible ? "5.5rem" : undefined,
         }}
       >
-        <div className="h-full overflow-hidden">
+        <div className="h-full overflow-y-auto">
           <Outlet />
         </div>
       </main>

@@ -121,7 +121,7 @@ Whatbox edge. v1 (radio.nicemouth.box.ca) still serves listeners.
 
 ## Branch state — `fix/web-readability-and-sticky-footer`
 
-Currently 16 commits ahead of `main`. PR not yet opened.
+Currently ahead of `main`. PR lands via the standard triple-signoff flow:
 
 To open the PR:
 1. `gh pr create --draft --fill`
